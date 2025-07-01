@@ -137,13 +137,6 @@ impl Codegen {
                         self.push_n(var_offset, '>');
                         self.push('-');
                     });
-
-                    bf_loop!(self, {
-                        self.push_n(var_offset, '<');
-                        self.push('+');
-                        self.push_n(var_offset, '>');
-                        self.push('-');
-                    });
                 }
                 "function_definition" => todo!(),
                 "linkage_specification" => todo!(),
