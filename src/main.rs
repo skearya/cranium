@@ -1,4 +1,4 @@
-use std::{collections::HashMap, hash::Hash};
+use std::collections::HashMap;
 
 use tree_sitter::{Node, Parser};
 
@@ -15,6 +15,14 @@ macro_rules! fields {
     ($node:ident, $field:ident, $($fields:ident),+) => {
         fields!($node, $field);
         fields!($node, $($fields),+)
+    };
+}
+
+macro_rules! bf_loop {
+    ($codegen:ident, $block:block) => {
+        $codegen.push('[');
+        $block
+        $codegen.push(']');
     };
 }
 
@@ -96,7 +104,7 @@ impl Codegen {
 
                 variables.insert(self.src(&declarator_inner), self.stack_pointer);
 
-                self.pushn(size, '>');
+                self.push_n(size, '>');
                 self.stack_pointer += size;
             }
         }
@@ -123,11 +131,18 @@ impl Codegen {
                     let var_location = variables[self.src(&declarator_inner)];
                     let var_offset = self.stack_pointer - var_location;
 
-                    self.bf_loop(|s| {
-                        s.pushn(var_offset, '<');
-                        s.push('+');
-                        s.pushn(var_offset, '>');
-                        s.push('-');
+                    bf_loop!(self, {
+                        self.push_n(var_offset, '<');
+                        self.push('+');
+                        self.push_n(var_offset, '>');
+                        self.push('-');
+                    });
+
+                    bf_loop!(self, {
+                        self.push_n(var_offset, '<');
+                        self.push('+');
+                        self.push_n(var_offset, '>');
+                        self.push('-');
                     });
                 }
                 "function_definition" => todo!(),
@@ -206,26 +221,26 @@ impl Codegen {
 
                 // Copy to two locations
 
-                self.pushn(var_offset, '<');
+                self.push_n(var_offset, '<');
 
-                self.bf_loop(|s| {
-                    s.push('-');
-                    s.pushn(var_offset, '>');
-                    s.push('+');
-                    s.push('>');
-                    s.push('+');
-                    s.pushn(var_offset + 1, '<');
+                bf_loop!(self, {
+                    self.push('-');
+                    self.push_n(var_offset, '>');
+                    self.push('+');
+                    self.push('>');
+                    self.push('+');
+                    self.push_n(var_offset + 1, '<');
                 });
 
                 // Move destination two back into source
 
-                self.pushn(var_offset + 1, '>');
+                self.push_n(var_offset + 1, '>');
 
-                self.bf_loop(|s| {
-                    s.push('-');
-                    s.pushn(var_offset + 1, '<');
-                    s.push('+');
-                    s.pushn(var_offset + 1, '>');
+                bf_loop!(self, {
+                    self.push('-');
+                    self.push_n(var_offset + 1, '<');
+                    self.push('+');
+                    self.push_n(var_offset + 1, '>');
                 });
 
                 self.stack_pointer += 1;
@@ -234,7 +249,7 @@ impl Codegen {
             "number_literal" => {
                 let num = self.src(node).parse::<usize>().unwrap();
 
-                self.pushn(num, '+');
+                self.push_n(num, '+');
                 self.push('>');
 
                 self.stack_pointer += 1;
@@ -257,21 +272,13 @@ impl Codegen {
             .expect("source code should be valid UTF-8")
     }
 
-    fn bf_loop(&mut self, content: impl Fn(&mut Self)) {
-        self.push('[');
-
-        content(self);
-
-        self.push(']');
-    }
-
     fn push(&mut self, c: char) {
         debug_assert!(matches!(c, '>' | '<' | '+' | '-' | '.' | ',' | '[' | ']'));
 
         self.output.push(c);
     }
 
-    fn pushn(&mut self, n: usize, c: char) {
+    fn push_n(&mut self, n: usize, c: char) {
         for _ in 0..n {
             self.push(c);
         }
