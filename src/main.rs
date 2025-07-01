@@ -4,8 +4,6 @@ use tree_sitter::{Node, Parser};
 
 const SOURCE: &str = include_str!("../input.c");
 
-const SOURCE_BYTES: &[u8] = SOURCE.as_bytes();
-
 // TODO: Add optional support
 macro_rules! fields {
     ($node:ident, $field:ident) => {
@@ -26,18 +24,19 @@ macro_rules! bf_loop {
     };
 }
 
-struct Codegen {
+struct Codegen<'src> {
+    src: &'src str,
     output: String,
     stack_pointer: usize,
 }
 
-struct Environment<'a> {
-    parent: Option<&'a Environment<'a>>,
-    variables: HashMap<&'static str, usize>,
+struct Environment<'src, 'a> {
+    parent: Option<&'a Environment<'src, 'a>>,
+    variables: HashMap<&'src str, usize>,
 }
 
-impl Environment<'_> {
-    fn lookup(&self, name: &str) -> Option<usize> {
+impl<'src> Environment<'src, '_> {
+    fn lookup(&self, name: &'src str) -> Option<usize> {
         match self.variables.get(name) {
             Some(location) => Some(*location),
             None => match self.parent {
@@ -48,9 +47,10 @@ impl Environment<'_> {
     }
 }
 
-impl Codegen {
-    fn new() -> Self {
+impl<'src> Codegen<'src> {
+    fn new(src: &'src str) -> Self {
         Self {
+            src,
             output: String::new(),
             stack_pointer: 0,
         }
@@ -119,6 +119,7 @@ impl Codegen {
 
                 let size = match self.src(&r#type) {
                     "char" => 1,
+                    "bool" => todo!(),
                     _ => panic!(),
                 };
 
@@ -140,6 +141,7 @@ impl Codegen {
 
                     match self.src(&r#type) {
                         "char" => {}
+                        "bool" => todo!(),
                         _ => panic!(),
                     }
 
@@ -294,8 +296,8 @@ impl Codegen {
         }
     }
 
-    fn src(&self, node: &Node) -> &'static str {
-        node.utf8_text(SOURCE_BYTES)
+    fn src(&self, node: &Node) -> &'src str {
+        node.utf8_text(self.src.as_bytes())
             .expect("source code should be valid UTF-8")
     }
 
@@ -328,7 +330,7 @@ fn main() {
 
     dbg!(root.to_sexp());
 
-    let mut codegen = Codegen::new();
+    let mut codegen = Codegen::new(SOURCE);
     codegen.generate(&root);
 
     dbg!(codegen.output);
