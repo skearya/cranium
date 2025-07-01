@@ -31,6 +31,23 @@ struct Codegen {
     stack_pointer: usize,
 }
 
+struct Environment<'a> {
+    parent: Option<&'a Environment<'a>>,
+    variables: HashMap<&'static str, usize>,
+}
+
+impl Environment<'_> {
+    fn lookup(&self, name: &str) -> Option<usize> {
+        match self.variables.get(name) {
+            Some(location) => Some(*location),
+            None => match self.parent {
+                Some(parent) => parent.lookup(name),
+                None => None,
+            },
+        }
+    }
+}
+
 impl Codegen {
     fn new() -> Self {
         Self {
@@ -84,11 +101,16 @@ impl Codegen {
     fn main(&mut self, node: &Node) {
         fields!(node, body);
 
-        self.compound_statement(&body);
+        self.compound_statement(&body, None);
     }
 
-    fn compound_statement(&mut self, node: &Node) {
-        let mut variables: HashMap<&'static str, usize> = HashMap::new();
+    fn compound_statement(&mut self, node: &Node, parent: Option<&Environment>) {
+        let mut env = Environment {
+            parent,
+            variables: HashMap::new(),
+        };
+
+        let stack_base = self.stack_pointer;
 
         for node in node.named_children(&mut node.walk()) {
             if node.kind() == "declaration" {
@@ -102,7 +124,8 @@ impl Codegen {
 
                 let declarator_inner = declarator.child_by_field_name("declarator").unwrap();
 
-                variables.insert(self.src(&declarator_inner), self.stack_pointer);
+                env.variables
+                    .insert(self.src(&declarator_inner), self.stack_pointer);
 
                 self.push_n(size, '>');
                 self.stack_pointer += size;
@@ -118,17 +141,17 @@ impl Codegen {
                     match self.src(&r#type) {
                         "char" => {}
                         _ => panic!(),
-                    };
+                    }
 
                     let declarator_inner = declarator.child_by_field_name("declarator").unwrap();
                     let value = declarator.child_by_field_name("value").unwrap();
 
-                    self.expression(&value, &variables);
+                    self.expression(&value, &env);
 
                     self.push('<');
                     self.stack_pointer -= 1;
 
-                    let var_location = variables[self.src(&declarator_inner)];
+                    let var_location = env.variables[self.src(&declarator_inner)];
                     let var_offset = self.stack_pointer - var_location;
 
                     bf_loop!(self, {
@@ -148,23 +171,32 @@ impl Codegen {
                 "preproc_include" => todo!(),
                 "type_definition" => todo!(),
                 "type_specifier" => todo!(),
-                _ => self.statement(&node, &variables),
+                _ => self.statement(&node, &env),
             }
         }
+
+        let stack_size = self.stack_pointer - stack_base;
+
+        for _ in 0..stack_size {
+            self.push('<');
+            self.push_str("[-]");
+        }
+
+        self.stack_pointer -= stack_size;
     }
 
-    fn statement(&mut self, node: &Node, variables: &HashMap<&'static str, usize>) {
+    fn statement(&mut self, node: &Node, env: &Environment) {
         match node.kind() {
             "attributed_statement" => todo!(),
             "break_statement" => todo!(),
             "case_statement" => todo!(),
-            "compound_statement" => todo!(),
+            "compound_statement" => self.compound_statement(node, Some(env)),
             "continue_statement" => todo!(),
             "do_statement" => todo!(),
             "expression_statement" => {
                 let expr = node.child(0).unwrap();
 
-                self.expression(&expr, variables);
+                self.expression(&expr, env);
             }
             "for_statement" => todo!(),
             "goto_statement" => todo!(),
@@ -179,15 +211,15 @@ impl Codegen {
         }
     }
 
-    fn expression(&mut self, node: &Node, variables: &HashMap<&'static str, usize>) {
+    fn expression(&mut self, node: &Node, env: &Environment) {
         match node.kind() {
             "alignof_expression" => todo!(),
             "assignment_expression" => todo!(),
             "binary_expression" => {
                 fields!(node, left, operator, right);
 
-                self.expression(&left, variables);
-                self.expression(&right, variables);
+                self.expression(&left, env);
+                self.expression(&right, env);
 
                 match self.src(&operator) {
                     "+" => self.push_str("<[<+>-]"),
@@ -209,7 +241,9 @@ impl Codegen {
             "generic_expression" => todo!(),
             "gnu_asm_expression" => todo!(),
             "identifier" => {
-                let var_location = variables[self.src(node)];
+                let var_location = env
+                    .lookup(self.src(node))
+                    .expect("variable should've been found");
                 let var_offset = self.stack_pointer - var_location;
 
                 // Copy to two locations

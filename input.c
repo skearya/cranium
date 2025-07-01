@@ -1,5 +1,10 @@
 int main()
 {
-    char a = 9 + 10;
-    char b = a + a + a;
+    char a = 10;
+
+    {
+        char b = a;
+    }
+
+    char c = 2;
 }
