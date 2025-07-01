@@ -96,10 +96,7 @@ impl Codegen {
 
                 variables.insert(self.src(&declarator_inner), self.stack_pointer);
 
-                for _ in 0..size {
-                    self.output.push('>');
-                }
-
+                self.pushn(size, '>');
                 self.stack_pointer += size;
             }
         }
@@ -120,27 +117,18 @@ impl Codegen {
 
                     self.expression(&value, &variables);
 
-                    self.output.push('<');
+                    self.push('<');
                     self.stack_pointer -= 1;
 
                     let var_location = variables[self.src(&declarator_inner)];
                     let var_offset = self.stack_pointer - var_location;
 
-                    self.output.push('[');
-
-                    for _ in 0..var_offset {
-                        self.output.push('<');
-                    }
-
-                    self.output.push('+');
-
-                    for _ in 0..var_offset {
-                        self.output.push('>');
-                    }
-
-                    self.output.push('-');
-
-                    self.output.push(']');
+                    self.bf_loop(|s| {
+                        s.pushn(var_offset, '<');
+                        s.push('+');
+                        s.pushn(var_offset, '>');
+                        s.push('-');
+                    });
                 }
                 "function_definition" => todo!(),
                 "linkage_specification" => todo!(),
@@ -194,8 +182,8 @@ impl Codegen {
                 self.expression(&right, variables);
 
                 match self.src(&operator) {
-                    "+" => self.output.push_str("<[<+>-]"),
-                    "-" => self.output.push_str("<[<->-]"),
+                    "+" => self.push_str("<[<+>-]"),
+                    "-" => self.push_str("<[<->-]"),
                     _ => panic!(),
                 }
 
@@ -218,61 +206,36 @@ impl Codegen {
 
                 // Copy to two locations
 
-                for _ in 0..var_offset {
-                    self.output.push('<');
-                }
+                self.pushn(var_offset, '<');
 
-                self.output.push('[');
+                self.bf_loop(|s| {
+                    s.push('-');
+                    s.pushn(var_offset, '>');
+                    s.push('+');
+                    s.push('>');
+                    s.push('+');
+                    s.pushn(var_offset + 1, '<');
+                });
 
-                self.output.push('-');
+                // Move destination two back into source
 
-                for _ in 0..var_offset {
-                    self.output.push('>');
-                }
+                self.pushn(var_offset + 1, '>');
 
-                self.output.push('+');
-                self.output.push('>');
-                self.output.push('+');
-
-                for _ in 0..var_offset + 1 {
-                    self.output.push('<');
-                }
-
-                self.output.push(']');
-
-                // Move destination two into source
-
-                for _ in 0..var_offset + 1 {
-                    self.output.push('>');
-                }
+                self.bf_loop(|s| {
+                    s.push('-');
+                    s.pushn(var_offset + 1, '<');
+                    s.push('+');
+                    s.pushn(var_offset + 1, '>');
+                });
 
                 self.stack_pointer += 1;
-
-                self.output.push('[');
-
-                self.output.push('-');
-
-                for _ in 0..var_offset + 1 {
-                    self.output.push('<');
-                }
-
-                self.output.push('+');
-
-                for _ in 0..var_offset + 1 {
-                    self.output.push('>');
-                }
-
-                self.output.push(']');
             }
             "null" => todo!(),
             "number_literal" => {
                 let num = self.src(node).parse::<usize>().unwrap();
 
-                for _ in 0..num {
-                    self.output.push('+');
-                }
-
-                self.output.push('>');
+                self.pushn(num, '+');
+                self.push('>');
 
                 self.stack_pointer += 1;
             }
@@ -292,6 +255,30 @@ impl Codegen {
     fn src(&self, node: &Node) -> &'static str {
         node.utf8_text(SOURCE_BYTES)
             .expect("source code should be valid UTF-8")
+    }
+
+    fn bf_loop(&mut self, content: impl Fn(&mut Self)) {
+        self.push('[');
+
+        content(self);
+
+        self.push(']');
+    }
+
+    fn push(&mut self, c: char) {
+        debug_assert!(matches!(c, '>' | '<' | '+' | '-' | '.' | ',' | '[' | ']'));
+
+        self.output.push(c);
+    }
+
+    fn pushn(&mut self, n: usize, c: char) {
+        for _ in 0..n {
+            self.push(c);
+        }
+    }
+
+    fn push_str(&mut self, s: &str) {
+        self.output.push_str(s);
     }
 }
 
