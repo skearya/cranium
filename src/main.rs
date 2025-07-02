@@ -231,7 +231,21 @@ impl<'src> Codegen<'src> {
 
                 self.stack_pointer -= 1;
             }
-            "call_expression" => todo!(),
+            "call_expression" => {
+                fields!(node, function, arguments);
+
+                // TODO: Functions can be any expression
+                match self.src(&function) {
+                    "putc" => {}
+                    _ => panic!(),
+                };
+
+                self.argument_list(&arguments, env);
+
+                self.push_str("<.[-]");
+
+                self.stack_pointer -= arguments.named_child_count()
+            }
             "cast_expression" => todo!(),
             "char_literal" => todo!(),
             "compound_literal_expression" => todo!(),
@@ -293,6 +307,13 @@ impl<'src> Codegen<'src> {
             "unary_expression" => todo!(),
             "update_expression" => todo!(),
             _ => unreachable!(),
+        }
+    }
+
+    fn argument_list(&mut self, node: &Node, env: &Environment) {
+        for argument in node.named_children(&mut node.walk()) {
+            // TODO: Do not assume the argument is an expression
+            self.expression(&argument, env);
         }
     }
 
