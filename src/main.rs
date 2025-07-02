@@ -202,7 +202,20 @@ impl<'src> Codegen<'src> {
             }
             "for_statement" => todo!(),
             "goto_statement" => todo!(),
-            "if_statement" => todo!(),
+            "if_statement" => {
+                fields!(node, condition, consequence);
+
+                self.expression(&condition.named_child(0).unwrap(), env);
+
+                self.push('<');
+
+                bf_loop!(self, {
+                    self.push_str("[-]");
+                    self.stack_pointer -= 1;
+
+                    self.compound_statement(&consequence, Some(env));
+                });
+            }
             "labeled_statement" => todo!(),
             "return_statement" => todo!(),
             "seh_leave_statement" => todo!(),
