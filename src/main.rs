@@ -216,7 +216,55 @@ impl<'src> Codegen<'src> {
     fn expression(&mut self, node: &Node, env: &Environment) {
         match node.kind() {
             "alignof_expression" => todo!(),
-            "assignment_expression" => todo!(),
+            "assignment_expression" => {
+                fields!(node, left, right, operator);
+
+                match left.kind() {
+                    "call_expression" => todo!(),
+                    "field_expression" => todo!(),
+                    "identifier" => {}
+                    "parenthesized_expression" => todo!(),
+                    "pointer_expression" => todo!(),
+                    "subscript_expression" => todo!(),
+                    _ => unreachable!(),
+                }
+
+                match self.src(&operator) {
+                    "%=" => todo!(),
+                    "&=" => todo!(),
+                    "*=" => todo!(),
+                    "+=" => todo!(),
+                    "-=" => todo!(),
+                    "/=" => todo!(),
+                    "<<=" => todo!(),
+                    "=" => {}
+                    ">>=" => todo!(),
+                    "^=" => todo!(),
+                    "|=" => todo!(),
+                    _ => unreachable!(),
+                };
+
+                self.expression(&right, env);
+
+                self.push('<');
+                self.stack_pointer -= 1;
+
+                let var_location = env.variables[self.src(&left)];
+                let var_offset = self.stack_pointer - var_location;
+
+                // Clear memory
+
+                self.push_n(var_offset, '<');
+                self.push_str("[-]");
+                self.push_n(var_offset, '>');
+
+                bf_loop!(self, {
+                    self.push_n(var_offset, '<');
+                    self.push('+');
+                    self.push_n(var_offset, '>');
+                    self.push('-');
+                });
+            }
             "binary_expression" => {
                 fields!(node, left, operator, right);
 
@@ -226,7 +274,7 @@ impl<'src> Codegen<'src> {
                 match self.src(&operator) {
                     "+" => self.push_str("<[<+>-]"),
                     "-" => self.push_str("<[<->-]"),
-                    _ => panic!(),
+                    _ => todo!(),
                 }
 
                 self.stack_pointer -= 1;
