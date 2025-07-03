@@ -1,6 +1,6 @@
 int main()
 {
-    char cond = 0;
+    bool cond = true;
 
     if (cond)
     {
@@ -10,4 +10,6 @@ int main()
     {
         putc('b');
     }
+
+    putc('\n');
 }

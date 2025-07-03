@@ -1,3 +1,5 @@
+mod interpreter;
+
 use std::collections::HashMap;
 
 use tree_sitter::{Node, Parser};
@@ -486,5 +488,8 @@ fn main() {
     let mut codegen = Codegen::new(SOURCE);
     codegen.generate(&root);
 
-    println!("{}", codegen.output);
+    dbg!(&codegen.output);
+
+    print!("interpreter output: ");
+    interpreter::run(&codegen.output);
 }
