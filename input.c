@@ -1,7 +1,8 @@
 int main()
 {
-    char a = 1;
-    if (a) {
-        putc(97);
+    if (false)
+    {
+        putc('\t');
+        putc('b');
     }
 }

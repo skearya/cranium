@@ -119,7 +119,7 @@ impl<'src> Codegen<'src> {
 
                 let size = match self.src(&r#type) {
                     "char" => 1,
-                    "bool" => todo!(),
+                    "bool" => 1,
                     _ => panic!(),
                 };
 
@@ -141,7 +141,7 @@ impl<'src> Codegen<'src> {
 
                     match self.src(&r#type) {
                         "char" => {}
-                        "bool" => todo!(),
+                        "bool" => {}
                         _ => panic!(),
                     }
 
@@ -213,7 +213,7 @@ impl<'src> Codegen<'src> {
                     self.push_str("[-]");
                     self.stack_pointer -= 1;
 
-                    self.compound_statement(&consequence, Some(env));
+                    self.statement(&consequence, env);
                 });
             }
             "labeled_statement" => todo!(),
@@ -262,7 +262,9 @@ impl<'src> Codegen<'src> {
                 self.push('<');
                 self.stack_pointer -= 1;
 
-                let var_location = env.variables[self.src(&left)];
+                let var_location = env
+                    .lookup(self.src(&left))
+                    .expect("variable should've been found");
                 let var_offset = self.stack_pointer - var_location;
 
                 // Clear memory
@@ -308,12 +310,50 @@ impl<'src> Codegen<'src> {
                 self.stack_pointer -= arguments.named_child_count()
             }
             "cast_expression" => todo!(),
-            "char_literal" => todo!(),
+            "char_literal" => {
+                if node.named_child_count() != 1 {
+                    panic!("expected one character in char literal")
+                };
+
+                let child = node.named_child(0).unwrap();
+
+                let char = match child.kind() {
+                    "character" => self.src(&child).chars().next().unwrap(),
+                    "escape_sequence" => match self.src(&child) {
+                        r#"\'"# => '\'',
+                        r#"\""# => '\"',
+                        r#"\?"# => '?',
+                        r#"\\"# => '\\',
+                        r#"\a"# => '\x07',
+                        r#"\b"# => '\x08',
+                        r#"\f"# => '\x0c',
+                        r#"\n"# => '\n',
+                        r#"\r"# => '\r',
+                        r#"\t"# => '\t',
+                        r#"\v"# => '\x0b',
+                        esc if esc.starts_with(r#"\x"#) => todo!(),
+                        esc if esc.starts_with(r#"\u"#) => todo!(),
+                        esc if esc.starts_with(r#"\U"#) => todo!(),
+                        esc if esc.starts_with(r#"\"#) => todo!(),
+                        _ => unreachable!(),
+                    },
+                    _ => unreachable!(),
+                };
+
+                self.push_n(char as usize, '+');
+                self.push('>');
+
+                self.stack_pointer += 1;
+            }
             "compound_literal_expression" => todo!(),
             "concatenated_string" => todo!(),
             "conditional_expression" => todo!(),
             "extension_expression" => todo!(),
-            "false" => todo!(),
+            "false" => {
+                self.push('>');
+
+                self.stack_pointer += 1;
+            }
             "field_expression" => todo!(),
             "generic_expression" => todo!(),
             "gnu_asm_expression" => todo!(),
@@ -364,7 +404,12 @@ impl<'src> Codegen<'src> {
             "sizeof_expression" => todo!(),
             "string_literal" => todo!(),
             "subscript_expression" => todo!(),
-            "true" => todo!(),
+            "true" => {
+                self.push('+');
+                self.push('>');
+
+                self.stack_pointer += 1;
+            }
             "unary_expression" => todo!(),
             "update_expression" => todo!(),
             _ => unreachable!(),
