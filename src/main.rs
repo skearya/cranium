@@ -488,8 +488,7 @@ fn main() {
     let mut codegen = Codegen::new(SOURCE);
     codegen.generate(&root);
 
-    dbg!(&codegen.output);
+    println!("codegen = \"{}\"", codegen.output);
 
-    print!("interpreter output: ");
     interpreter::run(&codegen.output);
 }

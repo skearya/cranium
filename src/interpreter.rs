@@ -58,10 +58,49 @@ pub fn run(src: &str) {
     let tokens = tokenize(&mut src.chars());
 
     let mut memory = Box::new([0; 30000]);
-    let mut index = 0;
+    let mut ptr = 0;
 
-    interpret(&tokens, &mut memory[..], &mut index);
+    interpret(&tokens, &mut memory[..], &mut ptr);
 
-    dbg!(&memory[..16]);
-    dbg!(index);
+    const WIDTH: usize = 16;
+
+    // Top
+    print!("╭");
+    for _ in 0..WIDTH * 3 {
+        print!("─");
+    }
+    println!("╮");
+
+    // Memory
+    print!("│ ");
+    for (index, data) in memory[..WIDTH].iter().enumerate() {
+        print!("{}", data);
+
+        if index != WIDTH - 1 {
+            print!(", ");
+        }
+    }
+    println!(" │");
+
+    // Cursor
+    print!("│ ");
+    for index in 0..WIDTH {
+        if index == ptr {
+            print!("^");
+        } else {
+            print!(" ");
+        }
+
+        if index != WIDTH - 1 {
+            print!("  ")
+        }
+    }
+    println!(" │");
+
+    // Bottom
+    print!("╰");
+    for _ in 0..WIDTH * 3 {
+        print!("─");
+    }
+    println!("╯");
 }
