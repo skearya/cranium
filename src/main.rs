@@ -205,16 +205,46 @@ impl<'src> Codegen<'src> {
             "if_statement" => {
                 fields!(node, condition, consequence);
 
-                self.expression(&condition.named_child(0).unwrap(), env);
+                match node.child_by_field_name("alternative") {
+                    Some(alternative) => {
+                        self.push('+');
+                        self.push('>');
+                        self.stack_pointer += 1;
 
-                self.push('<');
+                        self.expression(&condition.named_child(0).unwrap(), env);
 
-                bf_loop!(self, {
-                    self.push_str("[-]");
-                    self.stack_pointer -= 1;
+                        self.push('<');
+                        self.stack_pointer -= 1;
 
-                    self.statement(&consequence, env);
-                });
+                        bf_loop!(self, {
+                            self.push_str("<->");
+                            self.push_str("[-]");
+
+                            self.statement(&consequence, env);
+                        });
+
+                        self.push('<');
+                        self.stack_pointer -= 1;
+
+                        bf_loop!(self, {
+                            self.push('-');
+
+                            self.statement(&alternative.named_child(0).unwrap(), env);
+                        });
+                    }
+                    None => {
+                        self.expression(&condition.named_child(0).unwrap(), env);
+
+                        self.push('<');
+                        self.stack_pointer -= 1;
+
+                        bf_loop!(self, {
+                            self.push_str("[-]");
+
+                            self.statement(&consequence, env);
+                        });
+                    }
+                }
             }
             "labeled_statement" => todo!(),
             "return_statement" => todo!(),
@@ -222,7 +252,7 @@ impl<'src> Codegen<'src> {
             "seh_try_statement" => todo!(),
             "switch_statement" => todo!(),
             "while_statement" => todo!(),
-            x => panic!("{x}"),
+            unexpected => panic!("{unexpected}"),
         }
     }
 
@@ -351,7 +381,6 @@ impl<'src> Codegen<'src> {
             "extension_expression" => todo!(),
             "false" => {
                 self.push('>');
-
                 self.stack_pointer += 1;
             }
             "field_expression" => todo!(),
@@ -407,12 +436,11 @@ impl<'src> Codegen<'src> {
             "true" => {
                 self.push('+');
                 self.push('>');
-
                 self.stack_pointer += 1;
             }
             "unary_expression" => todo!(),
             "update_expression" => todo!(),
-            _ => unreachable!(),
+            unexpected => panic!("{unexpected}"),
         }
     }
 
@@ -455,10 +483,8 @@ fn main() {
     let tree = parser.parse(SOURCE, None).unwrap();
     let root = tree.root_node();
 
-    dbg!(root.to_sexp());
-
     let mut codegen = Codegen::new(SOURCE);
     codegen.generate(&root);
 
-    dbg!(codegen.output);
+    println!("{}", codegen.output);
 }

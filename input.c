@@ -1,8 +1,13 @@
 int main()
 {
-    if (false)
+    char cond = 0;
+
+    if (cond)
     {
-        putc('\t');
+        putc('a');
+    }
+    else
+    {
         putc('b');
     }
 }
