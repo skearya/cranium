@@ -1,10 +1,11 @@
 int main()
 {
-    bool cond = true;
+    char a = 2;
+    a = 3;
 
-    if (cond)
+    if (true)
     {
-        putc('a');
+        putc('a' + a);
     }
     else
     {
