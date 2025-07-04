@@ -66,7 +66,11 @@ pub fn run(src: &str) {
 }
 
 fn print(memory: &[u8], ptr: usize) {
-    const WIDTH: usize = 16;
+    const WIDTH: usize = 24;
+
+    const BRIGHT_CYAN: &str = "\x1b[96m";
+    const BRIGHT_MAGENTA: &str = "\x1b[95m";
+    const END: &str = "\x1b[0m";
 
     // Top
     print!("╭");
@@ -78,7 +82,7 @@ fn print(memory: &[u8], ptr: usize) {
     // Memory
     print!("│ ");
     for (index, data) in memory[..WIDTH].iter().enumerate() {
-        print!("{}", data);
+        print!("{BRIGHT_CYAN}{}{END}", data);
 
         if index != WIDTH - 1 {
             print!(", ");
@@ -90,7 +94,7 @@ fn print(memory: &[u8], ptr: usize) {
     print!("│ ");
     for index in 0..WIDTH {
         if index == ptr {
-            print!("^");
+            print!("{BRIGHT_MAGENTA}^{END}");
         } else {
             print!(" ");
         }
