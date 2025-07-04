@@ -62,6 +62,10 @@ pub fn run(src: &str) {
 
     interpret(&tokens, &mut memory[..], &mut ptr);
 
+    print(&memory[..], ptr);
+}
+
+fn print(memory: &[u8], ptr: usize) {
     const WIDTH: usize = 16;
 
     // Top
