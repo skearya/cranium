@@ -297,7 +297,25 @@ impl<'src> Codegen<'src> {
             "seh_leave_statement" => todo!(),
             "seh_try_statement" => todo!(),
             "switch_statement" => todo!(),
-            "while_statement" => todo!(),
+            "while_statement" => {
+                fields!(node: body, condition);
+
+                self.parenthesized_expression(&condition, env);
+
+                self.push('<');
+                self.stack_pointer -= 1;
+
+                bf_loop!(self, {
+                    self.push_str("[-]");
+
+                    self.statement(&body, env);
+
+                    self.parenthesized_expression(&condition, env);
+
+                    self.push('<');
+                    self.stack_pointer -= 1;
+                });
+            }
             _ => unreachable!(),
         }
     }
@@ -521,7 +539,10 @@ impl<'src> Codegen<'src> {
     }
 
     fn push(&mut self, c: char) {
-        debug_assert!(matches!(c, '>' | '<' | '+' | '-' | '.' | ',' | '[' | ']'));
+        debug_assert!(matches!(
+            c,
+            '>' | '<' | '+' | '-' | '.' | ',' | '[' | ']' | '@'
+        ));
 
         self.output.push(c);
     }
@@ -533,6 +554,11 @@ impl<'src> Codegen<'src> {
     }
 
     fn push_str(&mut self, s: &str) {
+        debug_assert!(
+            s.chars()
+                .all(|c| matches!(c, '>' | '<' | '+' | '-' | '.' | ',' | '[' | ']' | '@'))
+        );
+
         self.output.push_str(s);
     }
 }

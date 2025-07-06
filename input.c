@@ -1,16 +1,12 @@
 int main()
 {
-    char a = 2;
-    a = 3;
+    char i = 3;
 
-    if (true)
+    while (i)
     {
-        putc('a' + a);
+        putc('a' + i);
+        i = i - 1;
     }
-    else
-    {
-        putc('b');
-    }
-
+    
     putc('\n');
 }

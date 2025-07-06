@@ -9,6 +9,7 @@ pub enum Token {
     PutChar,
     GetChar,
     Loop(Vec<Token>),
+    Debug,
 }
 
 fn tokenize(chars: &mut impl Iterator<Item = char>) -> Vec<Token> {
@@ -24,6 +25,7 @@ fn tokenize(chars: &mut impl Iterator<Item = char>) -> Vec<Token> {
             ',' => Token::GetChar,
             '[' => Token::Loop(tokenize(chars)),
             ']' => return tokens,
+            '@' => Token::Debug,
             char if char.is_whitespace() => continue,
             invalid => panic!("invalid instruction: {invalid}"),
         });
@@ -50,6 +52,7 @@ pub fn interpret(tokens: &[Token], memory: &mut [u8], ptr: &mut usize) {
                     interpret(tokens, memory, ptr);
                 }
             }
+            Token::Debug => print(memory, *ptr),
         }
     }
 }
@@ -71,6 +74,8 @@ fn print(memory: &[u8], ptr: usize) {
     const BRIGHT_CYAN: &str = "\x1b[96m";
     const BRIGHT_MAGENTA: &str = "\x1b[95m";
     const END: &str = "\x1b[0m";
+
+    println!();
 
     // Top
     print!("╭");
