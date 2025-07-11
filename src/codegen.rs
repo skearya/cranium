@@ -245,7 +245,31 @@ impl<'src> Codegen<'src> {
                     _ => unreachable!(),
                 }
             }
-            "for_statement" => todo!(),
+            "for_statement" => {
+                fields!(node: body);
+                fields!(node: initalizer, condition, update);
+
+                match initalizer.kind() {
+                    "comma_expression" => todo!(),
+                    "declaration" => {}
+                    "expression" => todo!(),
+                    _ => unreachable!(),
+                }
+
+                match condition.kind() {
+                    "comma_expression" => todo!(),
+                    "expression" => {}
+                    _ => unreachable!(),
+                }
+
+                match update.kind() {
+                    "comma_expression" => todo!(),
+                    "expression" => {}
+                    _ => unreachable!(),
+                }
+
+                todo!()
+            }
             "goto_statement" => todo!(),
             "if_statement" => {
                 fields!(node: condition, consequence);
@@ -376,25 +400,58 @@ impl<'src> Codegen<'src> {
             "binary_expression" => {
                 fields!(node: left, operator, right);
 
-                match left.kind() {
-                    kind if is_expression(kind) => self.expression(&left, env),
+                let push_left = |s: &mut Codegen<'src>| match left.kind() {
+                    kind if is_expression(kind) => s.expression(&left, env),
                     "preproc_defined" => todo!(),
                     _ => unreachable!(),
                 };
 
-                match right.kind() {
-                    kind if is_expression(kind) => self.expression(&right, env),
+                let push_right = |s: &mut Codegen<'src>| match right.kind() {
+                    kind if is_expression(kind) => s.expression(&right, env),
                     "preproc_defined" => todo!(),
                     _ => unreachable!(),
                 };
 
                 match self.src(&operator) {
-                    "+" => self.push_str("<[<+>-]"),
-                    "-" => self.push_str("<[<->-]"),
+                    "+" => {
+                        push_left(self);
+                        push_right(self);
+                        self.push_str("<[<+>-]");
+
+                        self.stack_pointer -= 1;
+                    }
+                    "-" => {
+                        push_left(self);
+                        push_right(self);
+                        self.push_str("<[<->-]");
+
+                        self.stack_pointer -= 1;
+                    }
+                    "==" => {
+                        self.push_str("+>");
+                        self.stack_pointer += 1;
+
+                        push_left(self);
+                        push_right(self);
+
+                        // Subtract a - b
+                        {
+                            self.push_str("<[<->-]");
+
+                            self.stack_pointer -= 1;
+                        }
+
+                        self.push('<');
+
+                        bf_loop!(self, {
+                            self.push_str("[-]");
+                            self.push_str("<->");
+                        });
+
+                        self.stack_pointer -= 1;
+                    }
                     _ => todo!(),
                 }
-
-                self.stack_pointer -= 1;
             }
             "call_expression" => {
                 fields!(node: function, arguments);
@@ -494,7 +551,7 @@ impl<'src> Codegen<'src> {
                 self.stack_pointer += 1;
             }
             "offsetof_expression" => todo!(),
-            "parenthesized_expression" => todo!(),
+            "parenthesized_expression" => self.parenthesized_expression(node, env),
             "pointer_expression" => todo!(),
             "sizeof_expression" => todo!(),
             "string_literal" => todo!(),
