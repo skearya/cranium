@@ -39,8 +39,8 @@ pub fn interpret(tokens: &[Token], memory: &mut [u8], ptr: &mut usize) {
         match token {
             Token::IncPtr => *ptr += 1,
             Token::DecPtr => *ptr -= 1,
-            Token::IncVal => memory[*ptr] += 1,
-            Token::DecVal => memory[*ptr] -= 1,
+            Token::IncVal => memory[*ptr] = memory[*ptr].wrapping_add(1),
+            Token::DecVal => memory[*ptr] = memory[*ptr].wrapping_sub(1),
             Token::PutChar => print!("{}", char::from(memory[*ptr])),
             Token::GetChar => {
                 let mut buffer = [0; 1];

@@ -450,6 +450,29 @@ impl<'src> Codegen<'src> {
 
                         self.stack_pointer -= 1;
                     }
+                    "!=" => {
+                        self.push_str(">");
+                        self.stack_pointer += 1;
+
+                        push_left(self);
+                        push_right(self);
+
+                        // Subtract a - b
+                        {
+                            self.push_str("<[<->-]");
+
+                            self.stack_pointer -= 1;
+                        }
+
+                        self.push('<');
+
+                        bf_loop!(self, {
+                            self.push_str("[-]");
+                            self.push_str("<+>");
+                        });
+
+                        self.stack_pointer -= 1;
+                    }
                     _ => todo!(),
                 }
             }
