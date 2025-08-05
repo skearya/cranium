@@ -60,7 +60,7 @@ pub fn interpret(tokens: &[Token], memory: &mut [u8], ptr: &mut usize) {
 pub fn run(src: &str) {
     let tokens = tokenize(&mut src.chars());
 
-    let mut memory = Box::new([0; 30000]);
+    let mut memory = Box::new([0; 30_000]);
     let mut ptr = 0;
 
     interpret(&tokens, &mut memory[..], &mut ptr);

@@ -154,11 +154,13 @@ impl<'src> Codegen<'src> {
 
         let stack_base = self.stack_pointer;
 
+        // TODO: Arrays!!!!
         for declaration in node
             .named_children(&mut node.walk())
             .filter(|node| node.kind() == "declaration")
         {
             fields!(declaration: declarator, r#type);
+            // TODO: Allow non-init declarators
             fields!(declarator: declarator);
 
             let size = match self.src(&r#type) {
@@ -182,7 +184,7 @@ impl<'src> Codegen<'src> {
                     match self.src(&r#type) {
                         "char" => {}
                         "bool" => {}
-                        _ => panic!(),
+                        _ => todo!(),
                     }
 
                     fields!(declarator: value);
@@ -245,6 +247,7 @@ impl<'src> Codegen<'src> {
                     _ => unreachable!(),
                 }
             }
+            // TODO: Finish!!!!!!
             "for_statement" => {
                 fields!(node: body);
                 fields!(node: initalizer, condition, update);
@@ -347,6 +350,8 @@ impl<'src> Codegen<'src> {
     fn expression(&mut self, node: &Node, env: &Environment) {
         match node.kind() {
             "alignof_expression" => todo!(),
+
+            // TODO: make it actually an expression (return rvalue)
             "assignment_expression" => {
                 fields!(node: left, right, operator);
 
@@ -385,7 +390,7 @@ impl<'src> Codegen<'src> {
                     .expect("variable should've been found");
                 let var_offset = self.stack_pointer - var_location;
 
-                // Clear memory
+                // Clear original var memory
                 self.push_n(var_offset, '<');
                 self.push_str("[-]");
                 self.push_n(var_offset, '>');
