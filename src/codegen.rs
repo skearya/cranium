@@ -13,9 +13,10 @@ pub struct Codegen<'src> {
 struct Environment<'src, 'a> {
     parent: Option<&'a Environment<'src, 'a>>,
     variables: HashMap<&'src str, usize>,
+    stack_base: usize,
 }
 
-impl Environment<'_, '_> {
+impl<'src> Environment<'src, '_> {
     fn lookup(&self, name: &str) -> Option<usize> {
         match self.variables.get(name) {
             Some(location) => Some(*location),
@@ -24,6 +25,37 @@ impl Environment<'_, '_> {
                 None => None,
             },
         }
+    }
+
+    fn clear(&mut self, codegen: &mut Codegen) {
+        let stack_size = codegen.stack_pointer - self.stack_base;
+
+        for _ in 0..stack_size {
+            codegen.push('<');
+            codegen.push_str("[-]");
+        }
+
+        codegen.stack_pointer -= stack_size;
+    }
+
+    fn reserve_space(&mut self, declaration: &Node, codegen: &mut Codegen<'src>) {
+        assert_eq!(declaration.kind(), "declaration");
+
+        fields!(declaration: declarator, r#type);
+        // TODO: Allow non-init declarators
+        fields!(declarator: declarator);
+
+        let size = match codegen.src(&r#type) {
+            "char" => 1,
+            "bool" => 1,
+            _ => todo!(),
+        };
+
+        self.variables
+            .insert(codegen.src(&declarator), codegen.stack_pointer);
+
+        codegen.push_n(size, '>');
+        codegen.stack_pointer += size;
     }
 }
 
@@ -146,65 +178,23 @@ impl<'src> Codegen<'src> {
         self.compound_statement(&body, None);
     }
 
-    fn compound_statement(&mut self, node: &Node, parent: Option<&Environment>) {
+    fn compound_statement(&mut self, node: &Node, parent: Option<&Environment<'src, '_>>) {
         let mut env = Environment {
             parent,
             variables: HashMap::new(),
+            stack_base: self.stack_pointer,
         };
 
-        let stack_base = self.stack_pointer;
-
-        // TODO: Arrays!!!!
         for declaration in node
             .named_children(&mut node.walk())
             .filter(|node| node.kind() == "declaration")
         {
-            fields!(declaration: declarator, r#type);
-            // TODO: Allow non-init declarators
-            fields!(declarator: declarator);
-
-            let size = match self.src(&r#type) {
-                "char" => 1,
-                "bool" => 1,
-                _ => todo!(),
-            };
-
-            env.variables
-                .insert(self.src(&declarator), self.stack_pointer);
-
-            self.push_n(size, '>');
-            self.stack_pointer += size;
+            env.reserve_space(&declaration, self);
         }
 
         for node in node.named_children(&mut node.walk()) {
             match node.kind() {
-                "declaration" => {
-                    fields!(node: declarator, r#type);
-
-                    match self.src(&r#type) {
-                        "char" => {}
-                        "bool" => {}
-                        _ => todo!(),
-                    }
-
-                    fields!(declarator: value);
-                    fields!(declarator: declarator);
-
-                    self.expression(&value, &env);
-
-                    self.push('<');
-                    self.stack_pointer -= 1;
-
-                    let var_location = env.variables[self.src(&declarator)];
-                    let var_offset = self.stack_pointer - var_location;
-
-                    bf_loop!(self, {
-                        self.push_n(var_offset, '<');
-                        self.push('+');
-                        self.push_n(var_offset, '>');
-                        self.push('-');
-                    });
-                }
+                "declaration" => self.declaration(&node, &env),
                 "function_definition" => todo!(),
                 "linkage_specification" => todo!(),
                 "preproc_call" => todo!(),
@@ -220,17 +210,38 @@ impl<'src> Codegen<'src> {
             }
         }
 
-        let stack_size = self.stack_pointer - stack_base;
-
-        for _ in 0..stack_size {
-            self.push('<');
-            self.push_str("[-]");
-        }
-
-        self.stack_pointer -= stack_size;
+        env.clear(self);
     }
 
-    fn statement(&mut self, node: &Node, env: &Environment) {
+    fn declaration(&mut self, node: &Node, env: &Environment) {
+        fields!(node: declarator, r#type);
+
+        match self.src(&r#type) {
+            "char" => {}
+            "bool" => {}
+            _ => todo!(),
+        }
+
+        fields!(declarator: value);
+        fields!(declarator: declarator);
+
+        self.expression(&value, env);
+
+        self.push('<');
+        self.stack_pointer -= 1;
+
+        let var_location = env.variables[self.src(&declarator)];
+        let var_offset = self.stack_pointer - var_location;
+
+        bf_loop!(self, {
+            self.push_n(var_offset, '<');
+            self.push('+');
+            self.push_n(var_offset, '>');
+            self.push('-');
+        });
+    }
+
+    fn statement(&mut self, node: &Node, env: &Environment<'src, '_>) {
         match node.kind() {
             "attributed_statement" => todo!(),
             "break_statement" => todo!(),
@@ -249,29 +260,60 @@ impl<'src> Codegen<'src> {
             }
             // TODO: Finish!!!!!!
             "for_statement" => {
-                fields!(node: body);
-                fields!(node: initalizer, condition, update);
+                // for(char i = 0; i < 2; i = i + 1 ) { /* code */ }
+                // EQUIVALENT TO
+                // { char i = 0; while(i < 2) { /* code */ i = i + 1; } }
+                //
 
-                match initalizer.kind() {
+                fields!(node: body);
+                optional_fields!(node: initializer, condition, update);
+
+                let initializer = initializer.unwrap();
+                let condition = condition.unwrap();
+                let update = update.unwrap();
+
+                match initializer.kind() {
                     "comma_expression" => todo!(),
                     "declaration" => {}
-                    "expression" => todo!(),
+                    kind if is_expression(kind) => todo!(),
                     _ => unreachable!(),
                 }
 
                 match condition.kind() {
                     "comma_expression" => todo!(),
-                    "expression" => {}
+                    kind if is_expression(kind) => {}
                     _ => unreachable!(),
                 }
 
                 match update.kind() {
                     "comma_expression" => todo!(),
-                    "expression" => {}
+                    kind if is_expression(kind) => {}
                     _ => unreachable!(),
                 }
 
-                todo!()
+                let mut outer_env = Environment {
+                    parent: Some(env),
+                    variables: HashMap::new(),
+                    stack_base: self.stack_pointer,
+                };
+
+                outer_env.reserve_space(&initializer, self);
+
+                self.expression(&condition, &outer_env);
+                self.push('<');
+                self.stack_pointer -= 1;
+
+                bf_loop!(self, {
+                    self.push_str("[-]");
+
+                    self.statement(&body, &outer_env);
+
+                    self.expression(&update, &outer_env);
+
+                    self.expression(&condition, &outer_env);
+                    self.push('<');
+                    self.stack_pointer -= 1;
+                });
             }
             "goto_statement" => todo!(),
             "if_statement" => {
@@ -280,6 +322,7 @@ impl<'src> Codegen<'src> {
 
                 match alternative {
                     Some(alternative) => {
+                        // Init flag to 1
                         self.push('+');
                         self.push('>');
                         self.stack_pointer += 1;
@@ -289,6 +332,7 @@ impl<'src> Codegen<'src> {
                         self.push('<');
                         self.stack_pointer -= 1;
 
+                        // Not actual loop. Resets flag if cond != 0
                         bf_loop!(self, {
                             self.push_str("<->");
                             self.push_str("[-]");
@@ -296,9 +340,11 @@ impl<'src> Codegen<'src> {
                             self.statement(&consequence, env);
                         });
 
+                        // Cond space guaranteed to be zero
                         self.push('<');
                         self.stack_pointer -= 1;
 
+                        // Another not-a-loop. Executes on flag
                         bf_loop!(self, {
                             self.push('-');
 
@@ -328,7 +374,6 @@ impl<'src> Codegen<'src> {
                 fields!(node: body, condition);
 
                 self.parenthesized_expression(&condition, env);
-
                 self.push('<');
                 self.stack_pointer -= 1;
 
@@ -338,7 +383,6 @@ impl<'src> Codegen<'src> {
                     self.statement(&body, env);
 
                     self.parenthesized_expression(&condition, env);
-
                     self.push('<');
                     self.stack_pointer -= 1;
                 });

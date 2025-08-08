@@ -1,12 +1,7 @@
 int main()
 {
-    char i = 0;
-
-    while (i != 3)
+    for(char i = 0; i != 3; i = i + 1)
     {
-        putc('e');
-        i = i + 1;
+        putc('h');
     }
-
-    putc('\n');
 }
