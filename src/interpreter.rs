@@ -60,7 +60,7 @@ pub fn interpret(tokens: &[Token], memory: &mut [u8], ptr: &mut usize) {
 pub fn run(src: &str) {
     let tokens = tokenize(&mut src.chars());
 
-    let mut memory = Box::new([0; 30_000]);
+    let mut memory = vec![0; 30_000].into_boxed_slice();
     let mut ptr = 0;
 
     interpret(&tokens, &mut memory[..], &mut ptr);
@@ -87,7 +87,7 @@ fn print(memory: &[u8], ptr: usize) {
     // Memory
     print!("│ ");
     for (index, data) in memory[..WIDTH].iter().enumerate() {
-        print!("{BRIGHT_CYAN}{}{END}", data);
+        print!("{BRIGHT_CYAN}{data}{END}");
 
         if index != WIDTH - 1 {
             print!(", ");
@@ -105,7 +105,7 @@ fn print(memory: &[u8], ptr: usize) {
         }
 
         if index != WIDTH - 1 {
-            print!("  ")
+            print!("  ");
         }
     }
     println!(" │");

@@ -20,7 +20,7 @@ fn main() {
 
     let output = Codegen::new(source).generate(&root);
 
-    println!("codegen = \"{}\"", output);
+    println!("codegen = \"{output}\"");
 
     interpreter::run(&output);
 }

@@ -46,8 +46,7 @@ impl<'src> Environment<'src, '_> {
         fields!(declarator: declarator);
 
         let size = match codegen.src(&r#type) {
-            "char" => 1,
-            "bool" => 1,
+            "char" | "bool" => 1,
             _ => todo!(),
         };
 
@@ -217,8 +216,7 @@ impl<'src> Codegen<'src> {
         fields!(node: declarator, r#type);
 
         match self.src(&r#type) {
-            "char" => {}
-            "bool" => {}
+            "char" | "bool" => {}
             _ => todo!(),
         }
 
@@ -258,13 +256,7 @@ impl<'src> Codegen<'src> {
                     _ => unreachable!(),
                 }
             }
-            // TODO: Finish!!!!!!
             "for_statement" => {
-                // for(char i = 0; i < 2; i = i + 1 ) { /* code */ }
-                // EQUIVALENT TO
-                // { char i = 0; while(i < 2) { /* code */ i = i + 1; } }
-                //
-
                 fields!(node: body);
                 optional_fields!(node: initializer, condition, update);
 
@@ -320,49 +312,46 @@ impl<'src> Codegen<'src> {
                 fields!(node: condition, consequence);
                 optional_fields!(node: alternative);
 
-                match alternative {
-                    Some(alternative) => {
-                        // Init flag to 1
-                        self.push('+');
-                        self.push('>');
-                        self.stack_pointer += 1;
+                if let Some(alternative) = alternative {
+                    // Init flag to 1
+                    self.push('+');
+                    self.push('>');
+                    self.stack_pointer += 1;
 
-                        self.parenthesized_expression(&condition, env);
+                    self.parenthesized_expression(&condition, env);
 
-                        self.push('<');
-                        self.stack_pointer -= 1;
+                    self.push('<');
+                    self.stack_pointer -= 1;
 
-                        // Not actual loop. Resets flag if cond != 0
-                        bf_loop!(self, {
-                            self.push_str("<->");
-                            self.push_str("[-]");
+                    // Not actual loop. Resets flag if cond != 0
+                    bf_loop!(self, {
+                        self.push_str("<->");
+                        self.push_str("[-]");
 
-                            self.statement(&consequence, env);
-                        });
+                        self.statement(&consequence, env);
+                    });
 
-                        // Cond space guaranteed to be zero
-                        self.push('<');
-                        self.stack_pointer -= 1;
+                    // Cond space guaranteed to be zero
+                    self.push('<');
+                    self.stack_pointer -= 1;
 
-                        // Another not-a-loop. Executes on flag
-                        bf_loop!(self, {
-                            self.push('-');
+                    // Another not-a-loop. Executes on flag
+                    bf_loop!(self, {
+                        self.push('-');
 
-                            self.statement(&alternative.named_child(0).unwrap(), env);
-                        });
-                    }
-                    None => {
-                        self.parenthesized_expression(&condition, env);
+                        self.statement(&alternative.named_child(0).unwrap(), env);
+                    });
+                } else {
+                    self.parenthesized_expression(&condition, env);
 
-                        self.push('<');
-                        self.stack_pointer -= 1;
+                    self.push('<');
+                    self.stack_pointer -= 1;
 
-                        bf_loop!(self, {
-                            self.push_str("[-]");
+                    bf_loop!(self, {
+                        self.push_str("[-]");
 
-                            self.statement(&consequence, env);
-                        });
-                    }
+                        self.statement(&consequence, env);
+                    });
                 }
             }
             "labeled_statement" => todo!(),
@@ -422,7 +411,7 @@ impl<'src> Codegen<'src> {
                     "^=" => todo!(),
                     "|=" => todo!(),
                     _ => unreachable!(),
-                };
+                }
 
                 self.expression(&right, env);
 
@@ -533,37 +522,36 @@ impl<'src> Codegen<'src> {
                 // TODO: Functions can be any expression
                 match self.src(&function) {
                     "putc" => self.push_str("<.[-]"),
+                    "puts" => todo!(),
                     _ => panic!(),
-                };
+                }
 
-                self.stack_pointer -= arguments.named_child_count()
+                self.stack_pointer -= arguments.named_child_count();
             }
             "cast_expression" => todo!(),
             "char_literal" => {
-                if node.named_child_count() != 1 {
-                    panic!("expected one character in char literal")
-                };
+                assert!(node.named_child_count() == 1, "expected one character in char literal");
 
                 let child = node.named_child(0).unwrap();
 
                 let char = match child.kind() {
                     "character" => self.src(&child).chars().next().unwrap(),
                     "escape_sequence" => match self.src(&child) {
-                        r#"\'"# => '\'',
+                        r"\'" => '\'',
                         r#"\""# => '\"',
-                        r#"\?"# => '?',
-                        r#"\\"# => '\\',
-                        r#"\a"# => '\x07',
-                        r#"\b"# => '\x08',
-                        r#"\f"# => '\x0c',
-                        r#"\n"# => '\n',
-                        r#"\r"# => '\r',
-                        r#"\t"# => '\t',
-                        r#"\v"# => '\x0b',
-                        esc if esc.starts_with(r#"\x"#) => todo!(),
-                        esc if esc.starts_with(r#"\u"#) => todo!(),
-                        esc if esc.starts_with(r#"\U"#) => todo!(),
-                        esc if esc.starts_with(r#"\"#) => todo!(),
+                        r"\?" => '?',
+                        r"\\" => '\\',
+                        r"\a" => '\x07',
+                        r"\b" => '\x08',
+                        r"\f" => '\x0c',
+                        r"\n" => '\n',
+                        r"\r" => '\r',
+                        r"\t" => '\t',
+                        r"\v" => '\x0b',
+                        esc if esc.starts_with(r"\x") => todo!(),
+                        esc if esc.starts_with(r"\u") => todo!(),
+                        esc if esc.starts_with(r"\U") => todo!(),
+                        esc if esc.starts_with('\\') => todo!(),
                         _ => unreachable!(),
                     },
                     _ => unreachable!(),
@@ -658,7 +646,7 @@ impl<'src> Codegen<'src> {
                 kind if is_expression(kind) => self.expression(&argument, env),
                 "preproc_defined" => todo!(),
                 _ => unreachable!(),
-            };
+            }
         }
     }
 
