@@ -160,7 +160,9 @@ impl<'src> Codegen<'src> {
                 "preproc_function_def" => todo!(),
                 "preproc_if" => todo!(),
                 "preproc_ifdef" => todo!(),
-                "preproc_include" => todo!(),
+                "preproc_include" => {
+                    println!("imports aren't supported yet");
+                }
                 "return_statement" => todo!(),
                 "switch_statement" => todo!(),
                 "type_definition" => todo!(),
@@ -521,8 +523,7 @@ impl<'src> Codegen<'src> {
 
                 // TODO: Functions can be any expression
                 match self.src(&function) {
-                    "putc" => self.push_str("<.[-]"),
-                    "puts" => todo!(),
+                    "putchar" => self.push_str("<.[-]"),
                     _ => panic!(),
                 }
 
@@ -530,7 +531,10 @@ impl<'src> Codegen<'src> {
             }
             "cast_expression" => todo!(),
             "char_literal" => {
-                assert!(node.named_child_count() == 1, "expected one character in char literal");
+                assert!(
+                    node.named_child_count() == 1,
+                    "expected one character in char literal"
+                );
 
                 let child = node.named_child(0).unwrap();
 
@@ -622,7 +626,9 @@ impl<'src> Codegen<'src> {
                 self.stack_pointer += 1;
             }
             "unary_expression" => todo!(),
-            "update_expression" => todo!(),
+            "update_expression" => {
+                fields!(node: argument, operator);
+            }
             _ => unreachable!(),
         }
     }
