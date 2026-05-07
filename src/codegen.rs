@@ -1,22 +1,40 @@
+//! Code generation logic for cranium.
+
 use std::collections::HashMap;
 
 use tree_sitter::Node;
 
 use crate::macros::{bf_loop, fields, optional_fields};
 
+/// Stateful type keeping track of the C to BF code
+/// generation.
 pub struct Codegen<'src> {
+    /// Source C code.
     src: &'src str,
+    /// Tracked location of the stack pointer. In other
+    /// words, the index that the head is currently at.
     stack_pointer: usize,
+    /// Output BF code.
     output: String,
 }
 
+/// Information about a scope's variables, regarding
+/// where they reside and where the locals begin.
+/// 
+/// Allows redefining variables inside inner scopes
+/// while leaving their value in outer scopes unchanged.
 struct Environment<'src, 'a> {
+    /// The parent environment.
     parent: Option<&'a Environment<'src, 'a>>,
+    /// Maps variable name to absolute location.
     variables: HashMap<&'src str, usize>,
+    /// Absolute location of the beginning of
+    /// the local varaibles for the current scope.
     stack_base: usize,
 }
 
 impl<'src> Environment<'src, '_> {
+    /// Returns absolute location of `name` variable.
     fn lookup(&self, name: &str) -> Option<usize> {
         match self.variables.get(name) {
             Some(location) => Some(*location),
@@ -27,6 +45,9 @@ impl<'src> Environment<'src, '_> {
         }
     }
 
+    /// Clears the all contents of an environment's local
+    /// variables, resetting the codegen's stack pointer as
+    /// well.
     fn clear(&mut self, codegen: &mut Codegen) {
         let stack_size = codegen.stack_pointer - self.stack_base;
 
@@ -35,9 +56,18 @@ impl<'src> Environment<'src, '_> {
             codegen.push_str("[-]");
         }
 
+        // equivalent to
+        // codegen.stack_pointer = self.stack_base
+        // which might be semantically better since it's akin
+        // to `push rbp ... pop rsp` in x86
         codegen.stack_pointer -= stack_size;
     }
 
+    /// Adds `declaration` to the environment, reserving space for
+    /// it and adding it to `variables`.
+    /// 
+    /// Assumes the stack pointer is at the appropriate location
+    /// to insert the variable.
     fn reserve_space(&mut self, declaration: &Node, codegen: &mut Codegen<'src>) {
         assert_eq!(declaration.kind(), "declaration");
 
@@ -58,6 +88,7 @@ impl<'src> Environment<'src, '_> {
     }
 }
 
+/// Returns whether a `Node::kind()` is a statement
 fn is_statement(kind: &str) -> bool {
     matches!(
         kind,
@@ -80,6 +111,7 @@ fn is_statement(kind: &str) -> bool {
     )
 }
 
+/// Returns whether a `Node::kind()` is an expression.
 fn is_expression(kind: &str) -> bool {
     matches!(
         kind,
@@ -113,6 +145,7 @@ fn is_expression(kind: &str) -> bool {
 }
 
 impl<'src> Codegen<'src> {
+    /// Initializes a `Codegen` object given C source code.
     pub fn new(src: &'src str) -> Self {
         Self {
             src,
@@ -121,6 +154,7 @@ impl<'src> Codegen<'src> {
         }
     }
 
+    /// Top-level call to compile the C file to BF.
     pub fn generate(mut self, root: &Node) -> String {
         assert_eq!(root.kind(), "translation_unit");
 
@@ -129,6 +163,10 @@ impl<'src> Codegen<'src> {
         self.output
     }
 
+    /// Generate code for a `translation_unit` node.
+    /// 
+    /// For the purposes of this project this refers to
+    /// a parsed C file.
     fn translation_unit(&mut self, root: &Node) {
         for node in root.named_children(&mut root.walk()) {
             match node.kind() {
@@ -166,6 +204,9 @@ impl<'src> Codegen<'src> {
                 "return_statement" => todo!(),
                 "switch_statement" => todo!(),
                 "type_definition" => todo!(),
+                // haha this is actually several kinds!
+                // if only the tree sitter api wasnt
+                // so incredibly sloppy...
                 "type_specifier" => todo!(),
                 "while_statement" => todo!(),
                 _ => unreachable!(),
@@ -173,12 +214,17 @@ impl<'src> Codegen<'src> {
         }
     }
 
+    /// Generate code for the `main` function, which is
+    /// where program execution begins.
     fn main(&mut self, node: &Node) {
         fields!(node: body);
 
         self.compound_statement(&body, None);
     }
 
+    /// This generates code for a scoping block (known internally
+    /// as a `compound_statement`). Creates a new environment for
+    /// the local variables declared here.
     fn compound_statement(&mut self, node: &Node, parent: Option<&Environment<'src, '_>>) {
         let mut env = Environment {
             parent,
@@ -214,6 +260,8 @@ impl<'src> Codegen<'src> {
         env.clear(self);
     }
 
+    /// Generates code for a variable declaration, assuming
+    /// the environment already has an assigned location for it.
     fn declaration(&mut self, node: &Node, env: &Environment) {
         fields!(node: declarator, r#type);
 
@@ -241,6 +289,7 @@ impl<'src> Codegen<'src> {
         });
     }
 
+    /// Generates code for any statement.
     fn statement(&mut self, node: &Node, env: &Environment<'src, '_>) {
         match node.kind() {
             "attributed_statement" => todo!(),
@@ -260,11 +309,13 @@ impl<'src> Codegen<'src> {
             }
             "for_statement" => {
                 fields!(node: body);
-                optional_fields!(node: initializer, condition, update);
 
+                // this is semantically equivalent to `fields`?
+                optional_fields!(node: initializer, condition, update);
                 let initializer = initializer.unwrap();
                 let condition = condition.unwrap();
                 let update = update.unwrap();
+
 
                 match initializer.kind() {
                     "comma_expression" => todo!(),
@@ -382,6 +433,7 @@ impl<'src> Codegen<'src> {
         }
     }
 
+    /// Evaluates any expression and leaves its value on stack.
     fn expression(&mut self, node: &Node, env: &Environment) {
         match node.kind() {
             "alignof_expression" => todo!(),
@@ -650,6 +702,10 @@ impl<'src> Codegen<'src> {
         }
     }
 
+    /// Evaluates a parenthesized expression (most cases,
+    /// this is just syntactically required or to indicate
+    /// operation order in expressions) and pushes its
+    /// value onto stack.
     fn parenthesized_expression(&mut self, node: &Node, env: &Environment) {
         let child = node.named_child(0).unwrap();
 
@@ -662,6 +718,8 @@ impl<'src> Codegen<'src> {
         }
     }
 
+    /// Pushes the value of each of the passed arguments
+    /// onto stack sequentially.
     fn argument_list(&mut self, node: &Node, env: &Environment) {
         for argument in node.named_children(&mut node.walk()) {
             match argument.kind() {
@@ -673,11 +731,14 @@ impl<'src> Codegen<'src> {
         }
     }
 
+    /// Returns a string slice to the exact source code
+    /// corresponding to a `Node`.
     fn src(&self, node: &Node) -> &'src str {
         node.utf8_text(self.src.as_bytes())
             .expect("source code should be valid UTF-8")
     }
 
+    /// Pushes a `c` to the generated BF code.
     fn push(&mut self, c: char) {
         debug_assert!(matches!(
             c,
@@ -687,12 +748,14 @@ impl<'src> Codegen<'src> {
         self.output.push(c);
     }
 
+    /// Pushes `n` instances of `c` to the generated BF code.
     fn push_n(&mut self, n: usize, c: char) {
         for _ in 0..n {
             self.push(c);
         }
     }
 
+    /// Pushes `s` to the generated BF code.
     fn push_str(&mut self, s: &str) {
         debug_assert!(
             s.chars()

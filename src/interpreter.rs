@@ -1,5 +1,9 @@
+//! Logic for executing a BF program.
+
 use std::io::{Read, stdin};
 
+/// The meaningful variants that every character
+/// in a BF program could encode.
 #[derive(Debug)]
 pub enum Token {
     IncPtr,
@@ -8,10 +12,12 @@ pub enum Token {
     DecVal,
     PutChar,
     GetChar,
+    /// Contains all the tokens that the loop encloses.
     Loop(Vec<Token>),
     Debug,
 }
 
+/// Encodes BF sourcecode into a string of tokens.
 fn tokenize(chars: &mut impl Iterator<Item = char>) -> Vec<Token> {
     let mut tokens = vec![];
 
@@ -34,6 +40,7 @@ fn tokenize(chars: &mut impl Iterator<Item = char>) -> Vec<Token> {
     tokens
 }
 
+/// Executes a slice of tokens, mutating `memory` and `ptr`.
 pub fn interpret(tokens: &[Token], memory: &mut [u8], ptr: &mut usize) {
     for token in tokens {
         match token {
@@ -57,6 +64,7 @@ pub fn interpret(tokens: &[Token], memory: &mut [u8], ptr: &mut usize) {
     }
 }
 
+/// Executes BF sourcecode and prints the final memory state.
 pub fn run(src: &str) {
     let tokens = tokenize(&mut src.chars());
 
@@ -68,6 +76,7 @@ pub fn run(src: &str) {
     print(&memory[..], ptr);
 }
 
+/// Pretty-prints the memory state and the head location.
 fn print(memory: &[u8], ptr: usize) {
     const WIDTH: usize = 24;
 

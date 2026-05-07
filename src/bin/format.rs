@@ -11,7 +11,7 @@ fn main() {
 
     let mut depth = 0;
 
-    for (index, c) in src.char_indices() {
+    for (_index, c) in src.char_indices() {
         match c {
             '[' => {
                 out.push('\n');
