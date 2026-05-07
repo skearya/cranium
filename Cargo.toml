@@ -1,8 +1,8 @@
 [package]
-name = "bf-c-backend"
+name = "cranium"
 version = "0.1.0"
 edition = "2024"
-default-run = "bf-c-backend"
+default-run = "cranium"
 
 [dependencies]
 tree-sitter = "0.25.6"

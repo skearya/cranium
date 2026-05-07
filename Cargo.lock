@@ -12,20 +12,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "bf-c-backend"
-version = "0.1.0"
-dependencies = [
- "tree-sitter",
- "tree-sitter-c",
-]
-
-[[package]]
 name = "cc"
 version = "1.2.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d487aa071b5f64da6f19a3e848e3578944b726ee5a4854b82172f02aa876bfdc"
 dependencies = [
  "shlex",
+]
+
+[[package]]
+name = "cranium"
+version = "0.1.0"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-c",
 ]
 
 [[package]]
