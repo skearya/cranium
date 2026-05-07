@@ -628,6 +628,23 @@ impl<'src> Codegen<'src> {
             "unary_expression" => todo!(),
             "update_expression" => {
                 fields!(node: argument, operator);
+
+                debug_assert_eq!(argument.kind(), "identifier", "update expression lvalue must be an identifier");
+
+                let var_location = env
+                    .lookup(self.src(&argument))
+                    .expect("Variable not found");
+                let var_offset = self.stack_pointer - var_location;
+
+                self.push_n(var_offset, '<');
+
+                self.push(match self.src(&operator) {
+                    "++" => '+',
+                    "--" => '-',
+                    _ => unreachable!(),
+                });
+
+                self.push_n(var_offset, '>');
             }
             _ => unreachable!(),
         }
