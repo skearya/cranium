@@ -334,12 +334,24 @@ impl<'src> Codegen<'src> {
             }
         }
 
+        // This stupid thing ensures that the stack is empty
+        // and that all that's left are the locals.
+        // Pretty sure the logic is right but you never know.
+        debug_assert_eq!(
+            self.stack_pointer,
+            env.variables
+                .values()
+                .max()
+                .map(|&x| x + 1)
+                .unwrap_or(env.stack_base)
+        );
+
         self.clear_environment(env);
     }
 
     /// Generates code for a variable declaration, assuming
     /// the environment already has an assigned location for it.
-    fn declaration(&mut self, node: Node, env: &Environment) {
+    fn declaration(&mut self, node: Node, env: &Environment<'src, '_>) {
         debug_assert_eq!(node.kind(), "declaration");
 
         fields!(node: declarator, r#type);
@@ -380,12 +392,22 @@ impl<'src> Codegen<'src> {
             "continue_statement" => todo!(),
             "do_statement" => todo!(),
             "expression_statement" => {
+                // evaluate, then clear
+
                 let child = node.child(0).unwrap();
+
+                let old_stack_top = self.stack_pointer;
 
                 match child.kind() {
                     "comma_expression" => todo!(),
                     kind if is_expression(kind) => self.expression(child, env),
                     _ => unreachable!(),
+                }
+
+                let clear_zone_size = self.stack_pointer - old_stack_top;
+                for _ in 0..clear_zone_size {
+                    self.push_str("<[-]");
+                    self.stack_pointer -= 1;
                 }
             }
             "for_statement" => self.for_statement(node, &env),
@@ -539,142 +561,13 @@ impl<'src> Codegen<'src> {
     }
 
     /// Evaluates any expression and pushes its value onto stack.
-    fn expression(&mut self, node: Node, env: &Environment) {
+    fn expression(&mut self, node: Node, env: &Environment<'src, '_>) {
         debug_assert!(is_expression(node.kind()));
 
         match node.kind() {
             "alignof_expression" => todo!(),
-
-            // TODO: make it actually an expression (return rvalue)
-            "assignment_expression" => {
-                fields!(node: left, right, operator);
-
-                match left.kind() {
-                    "call_expression" => todo!(),
-                    "field_expression" => todo!(),
-                    "identifier" => {}
-                    "parenthesized_expression" => todo!(),
-                    "pointer_expression" => todo!(),
-                    "subscript_expression" => todo!(),
-                    _ => unreachable!(),
-                }
-
-                match self.src(operator) {
-                    "%=" => todo!(),
-                    "&=" => todo!(),
-                    "*=" => todo!(),
-                    "+=" => todo!(),
-                    "-=" => todo!(),
-                    "/=" => todo!(),
-                    "<<=" => todo!(),
-                    "=" => {}
-                    ">>=" => todo!(),
-                    "^=" => todo!(),
-                    "|=" => todo!(),
-                    _ => unreachable!(),
-                }
-
-                self.expression(right, env);
-
-                self.push('<');
-                self.stack_pointer -= 1;
-
-                let var_location = env
-                    .lookup(self.src(left))
-                    .expect("variable should've been found");
-                let var_offset = self.stack_pointer - var_location;
-
-                // Clear original var memory
-                self.push_n(var_offset, '<');
-                self.push_str("[-]");
-                self.push_n(var_offset, '>');
-
-                bf_loop!(self, {
-                    self.push_n(var_offset, '<');
-                    self.push('+');
-                    self.push_n(var_offset, '>');
-                    self.push('-');
-                });
-            }
-            "binary_expression" => {
-                fields!(node: left, operator, right);
-
-                let push_left = |s: &mut Codegen<'src>| match left.kind() {
-                    kind if is_expression(kind) => s.expression(left, env),
-                    "preproc_defined" => todo!(),
-                    _ => unreachable!(),
-                };
-
-                let push_right = |s: &mut Codegen<'src>| match right.kind() {
-                    kind if is_expression(kind) => s.expression(right, env),
-                    "preproc_defined" => todo!(),
-                    _ => unreachable!(),
-                };
-
-                match self.src(operator) {
-                    "+" => {
-                        push_left(self);
-                        push_right(self);
-                        self.push_str("<[<+>-]");
-
-                        self.stack_pointer -= 1;
-                    }
-                    "-" => {
-                        push_left(self);
-                        push_right(self);
-                        self.push_str("<[<->-]");
-
-                        self.stack_pointer -= 1;
-                    }
-                    "==" => {
-                        self.push_str("+>");
-                        self.stack_pointer += 1;
-
-                        push_left(self);
-                        push_right(self);
-
-                        // Subtract a - b
-                        {
-                            self.push_str("<[<->-]");
-
-                            self.stack_pointer -= 1;
-                        }
-
-                        self.push('<');
-
-                        bf_loop!(self, {
-                            self.push_str("[-]");
-                            self.push_str("<->");
-                        });
-
-                        self.stack_pointer -= 1;
-                    }
-                    "!=" => {
-                        self.push_str(">");
-                        self.stack_pointer += 1;
-
-                        push_left(self);
-                        push_right(self);
-
-                        // Subtract a - b
-                        {
-                            self.push_str("<[<->-]");
-
-                            self.stack_pointer -= 1;
-                        }
-
-                        self.push('<');
-
-                        bf_loop!(self, {
-                            self.push_str("[-]");
-                            self.push_str("<+>");
-                        });
-
-                        self.stack_pointer -= 1;
-                    }
-                    _ => todo!(),
-                }
-            }
+            "assignment_expression" => self.assignment_expression(node, &env),
+            "binary_expression" => self.binary_expression(node, &env),
             "call_expression" => {
                 fields!(node: function, arguments);
 
@@ -689,82 +582,21 @@ impl<'src> Codegen<'src> {
                 self.stack_pointer -= arguments.named_child_count();
             }
             "cast_expression" => todo!(),
-            "char_literal" => {
-                assert!(
-                    node.named_child_count() == 1,
-                    "expected one character in char literal"
-                );
-
-                let child = node.named_child(0).unwrap();
-
-                let char = match child.kind() {
-                    "character" => self.src(child).chars().next().unwrap(),
-                    "escape_sequence" => match self.src(child) {
-                        r"\'" => '\'',
-                        r#"\""# => '\"',
-                        r"\?" => '?',
-                        r"\\" => '\\',
-                        r"\a" => '\x07',
-                        r"\b" => '\x08',
-                        r"\f" => '\x0c',
-                        r"\n" => '\n',
-                        r"\r" => '\r',
-                        r"\t" => '\t',
-                        r"\v" => '\x0b',
-                        esc if esc.starts_with(r"\x") => todo!(),
-                        esc if esc.starts_with(r"\u") => todo!(),
-                        esc if esc.starts_with(r"\U") => todo!(),
-                        esc if esc.starts_with('\\') => todo!(),
-                        _ => unreachable!(),
-                    },
-                    _ => unreachable!(),
-                };
-
-                self.push_n(char as usize, '+');
-                self.push('>');
-                self.stack_pointer += 1;
-            }
+            "char_literal" => self.char_literal_expression(node),
             "compound_literal_expression" => todo!(),
             "concatenated_string" => todo!(),
             "conditional_expression" => todo!(),
             "extension_expression" => todo!(),
             "false" => {
+                // zero!
+
                 self.push('>');
                 self.stack_pointer += 1;
             }
             "field_expression" => todo!(),
             "generic_expression" => todo!(),
             "gnu_asm_expression" => todo!(),
-            "identifier" => {
-                let var_location = env
-                    .lookup(self.src(node))
-                    .expect("variable should've been found");
-                let var_offset = self.stack_pointer - var_location;
-
-                // Copy to two locations
-                self.push_n(var_offset, '<');
-
-                bf_loop!(self, {
-                    self.push('-');
-                    self.push_n(var_offset, '>');
-                    self.push('+');
-                    self.push('>');
-                    self.push('+');
-                    self.push_n(var_offset + 1, '<');
-                });
-
-                // Move destination two back into source
-                self.push_n(var_offset + 1, '>');
-
-                bf_loop!(self, {
-                    self.push('-');
-                    self.push_n(var_offset + 1, '<');
-                    self.push('+');
-                    self.push_n(var_offset + 1, '>');
-                });
-
-                self.stack_pointer += 1;
-            }
+            "identifier" => self.identifier(node, &env),
             "null" => todo!(),
             "number_literal" => {
                 let num = self.src(node).parse::<usize>().unwrap();
@@ -811,11 +643,246 @@ impl<'src> Codegen<'src> {
         }
     }
 
+    /// Evaluates an assignment expression, modifying lvalue
+    /// and pushing rvalue onto stack.
+    fn assignment_expression(&mut self, node: Node, env: &Environment<'src, '_>) {
+        debug_assert_eq!(node.kind(), "assignment_expression");
+
+        fields!(node: left, right, operator);
+
+        match left.kind() {
+            "call_expression" => todo!(),
+            "field_expression" => todo!(),
+            "identifier" => {}
+            "parenthesized_expression" => todo!(),
+            "pointer_expression" => todo!(),
+            "subscript_expression" => todo!(),
+            _ => unreachable!(),
+        }
+
+        match self.src(operator) {
+            "%=" => todo!(),
+            "&=" => todo!(),
+            "*=" => todo!(),
+            "+=" => todo!(),
+            "-=" => todo!(),
+            "/=" => todo!(),
+            "<<=" => todo!(),
+            "=" => {}
+            ">>=" => todo!(),
+            "^=" => todo!(),
+            "|=" => todo!(),
+            _ => unreachable!(),
+        }
+
+        // push twice; once for copying in, other for leaving rvalue on stack
+        self.expression(right, env);
+        self.expression(right, env);
+
+        // Examine second one
+        self.push('<');
+        self.stack_pointer -= 1;
+
+        let var_location = env
+            .lookup(self.src(left))
+            .expect("variable should have been declared prior to assignment");
+        let var_offset = self.stack_pointer - var_location;
+
+        // Clear original var memory
+        self.push_n(var_offset, '<');
+        self.push_str("[-]");
+        self.push_n(var_offset, '>');
+
+        bf_loop!(self, {
+            self.push_n(var_offset, '<');
+            self.push('+');
+            self.push_n(var_offset, '>');
+            self.push('-');
+        });
+
+        // Now stack pointer is after first `right`, where it should be!
+    }
+
+    /// Evaluates and pushes onto stack a binary expression's
+    /// value.
+    fn binary_expression(&mut self, node: Node, env: &Environment<'src, '_>) {
+        // this is a pretty big function, not sure how to shrink it
+
+        debug_assert_eq!(node.kind(), "binary_expression");
+
+        fields!(node: left, operator, right);
+
+        let push_left = |s: &mut Codegen<'src>| match left.kind() {
+            kind if is_expression(kind) => s.expression(left, env),
+            "preproc_defined" => todo!(),
+            _ => unreachable!(),
+        };
+
+        let push_right = |s: &mut Codegen<'src>| match right.kind() {
+            kind if is_expression(kind) => s.expression(right, env),
+            "preproc_defined" => todo!(),
+            _ => unreachable!(),
+        };
+
+        match self.src(operator) {
+            "+" => {
+                push_left(self);
+                push_right(self);
+                self.push_str("<[<+>-]");
+
+                self.stack_pointer -= 1;
+            }
+            "-" => {
+                push_left(self);
+                push_right(self);
+                self.push_str("<[<->-]");
+
+                self.stack_pointer -= 1;
+            }
+            "*" => todo!(),
+            "/" => todo!(),
+            "%" => todo!(),
+            "<<" => todo!(),
+            ">>" => todo!(),
+            "&" => todo!(),
+            "|" => todo!(),
+            "^" => todo!(),
+            "==" => {
+                // set flag to 1
+                self.push_str("+>");
+                self.stack_pointer += 1;
+
+                push_left(self);
+                push_right(self);
+
+                // Subtract a - b
+                {
+                    self.push_str("<[<->-]");
+
+                    self.stack_pointer -= 1;
+                }
+
+                self.push('<');
+
+                // if difference != 0 (they are NOT equal),
+                // clear diff and set flag to 0
+                bf_loop!(self, {
+                    self.push_str("[-]");
+                    self.push_str("<->");
+                });
+
+                self.stack_pointer -= 1;
+            }
+            "!=" => {
+                // implicitly set flag = 0
+                self.push_str(">");
+                self.stack_pointer += 1;
+
+                push_left(self);
+                push_right(self);
+
+                // Subtract a - b
+                {
+                    self.push_str("<[<->-]");
+
+                    self.stack_pointer -= 1;
+                }
+
+                self.push('<');
+
+                // if difference != 0 (they ARE unequal)
+                // clear difference and set flag to one
+                bf_loop!(self, {
+                    self.push_str("[-]");
+                    self.push_str("<+>");
+                });
+
+                self.stack_pointer -= 1;
+            }
+            "<" => todo!(),
+            "<=" => todo!(),
+            ">" => todo!(),
+            ">=" => todo!(),
+            "&&" => todo!(),
+            "||" => todo!(),
+            _ => unreachable!(),
+        }
+    }
+
+    /// Evaluates and pushes onto stack a character's
+    /// corresponding value.
+    fn char_literal_expression(&mut self, node: Node) {
+        assert!(
+            node.named_child_count() == 1,
+            "expected one character in char literal"
+        );
+
+        let child = node.named_child(0).unwrap();
+
+        let char = match child.kind() {
+            "character" => self.src(child).chars().next().unwrap(),
+            "escape_sequence" => match self.src(child) {
+                r"\'" => '\'',
+                r#"\""# => '\"',
+                r"\?" => '?',
+                r"\\" => '\\',
+                r"\a" => '\x07',
+                r"\b" => '\x08',
+                r"\f" => '\x0c',
+                r"\n" => '\n',
+                r"\r" => '\r',
+                r"\t" => '\t',
+                r"\v" => '\x0b',
+                esc if esc.starts_with(r"\x") => todo!(),
+                esc if esc.starts_with(r"\u") => todo!(),
+                esc if esc.starts_with(r"\U") => todo!(),
+                esc if esc.starts_with('\\') => todo!(),
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
+        };
+
+        self.push_n(char as usize, '+');
+        self.push('>');
+        self.stack_pointer += 1;
+    }
+
+    /// Looks up variable in `env` and pushes its value to stack.
+    fn identifier(&mut self, node: Node, env: &Environment<'src, '_>) {
+        let var_location = env
+            .lookup(self.src(node))
+            .expect("variable should've been found");
+        let var_offset = self.stack_pointer - var_location;
+
+        // Copy to two locations
+        self.push_n(var_offset, '<');
+        bf_loop!(self, {
+            self.push('-');
+            self.push_n(var_offset, '>');
+            self.push('+');
+            self.push('>');
+            self.push('+');
+            self.push_n(var_offset + 1, '<');
+        });
+
+        // Move destination two back into source
+        self.push_n(var_offset + 1, '>');
+
+        bf_loop!(self, {
+            self.push('-');
+            self.push_n(var_offset + 1, '<');
+            self.push('+');
+            self.push_n(var_offset + 1, '>');
+        });
+
+        self.stack_pointer += 1;
+    }
+
     /// Evaluates a parenthesized expression (most cases,
     /// this is just syntactically required or to indicate
     /// operation order in expressions) and pushes its
     /// value onto stack.
-    fn parenthesized_expression(&mut self, node: Node, env: &Environment) {
+    fn parenthesized_expression(&mut self, node: Node, env: &Environment<'src, '_>) {
         debug_assert_eq!(node.kind(), "parenthesized_expression");
 
         let child = node.named_child(0).unwrap();
@@ -831,7 +898,7 @@ impl<'src> Codegen<'src> {
 
     /// Pushes the value of each of the passed arguments
     /// onto stack sequentially.
-    fn argument_list(&mut self, node: Node, env: &Environment) {
+    fn argument_list(&mut self, node: Node, env: &Environment<'src, '_>) {
         debug_assert_eq!(node.kind(), "argument_list");
 
         for argument in node.named_children(&mut node.walk()) {
