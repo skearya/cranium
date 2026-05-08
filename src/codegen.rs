@@ -44,48 +44,6 @@ impl<'src> Environment<'src, '_> {
             },
         }
     }
-
-    /// Clears the all contents of an environment's local
-    /// variables, resetting the codegen's stack pointer as
-    /// well.
-    fn clear(&mut self, codegen: &mut Codegen) {
-        let stack_size = codegen.stack_pointer - self.stack_base;
-
-        for _ in 0..stack_size {
-            codegen.push('<');
-            codegen.push_str("[-]");
-        }
-
-        // equivalent to
-        // codegen.stack_pointer = self.stack_base
-        // which might be semantically better since it's akin
-        // to `push rbp ... pop rsp` in x86
-        codegen.stack_pointer -= stack_size;
-    }
-
-    /// Adds `declaration` to the environment, reserving space for
-    /// it and adding it to `variables`.
-    /// 
-    /// Assumes the stack pointer is at the appropriate location
-    /// to insert the variable.
-    fn reserve_space(&mut self, declaration: &Node, codegen: &mut Codegen<'src>) {
-        assert_eq!(declaration.kind(), "declaration");
-
-        fields!(declaration: declarator, r#type);
-        // TODO: Allow non-init declarators
-        fields!(declarator: declarator);
-
-        let size = match codegen.src(&r#type) {
-            "char" | "bool" => 1,
-            _ => todo!(),
-        };
-
-        self.variables
-            .insert(codegen.src(&declarator), codegen.stack_pointer);
-
-        codegen.push_n(size, '>');
-        codegen.stack_pointer += size;
-    }
 }
 
 /// Returns whether a `Node::kind()` is a statement
@@ -152,6 +110,100 @@ impl<'src> Codegen<'src> {
             stack_pointer: 0,
             output: String::new(),
         }
+    }
+
+    /// Returns a string slice to the exact source code
+    /// corresponding to a `Node`.
+    fn src(&self, node: &Node) -> &'src str {
+        node.utf8_text(self.src.as_bytes())
+            .expect("source code should be valid UTF-8")
+    }
+
+    /// Pushes `c` to the generated BF code.
+    fn push(&mut self, c: char) {
+        debug_assert!(matches!(
+            c,
+            '>' | '<' | '+' | '-' | '.' | ',' | '[' | ']' | '@'
+        ));
+
+        self.output.push(c);
+    }
+
+    /// Pushes `n` instances of `c` to the generated BF code.
+    fn push_n(&mut self, n: usize, c: char) {
+        for _ in 0..n {
+            self.push(c);
+        }
+    }
+
+    /// Pushes `s` to the generated BF code.
+    fn push_str(&mut self, s: &str) {
+        debug_assert!(
+            s.chars()
+                .all(|c| matches!(c, '>' | '<' | '+' | '-' | '.' | ',' | '[' | ']' | '@'))
+        );
+
+        self.output.push_str(s);
+    }
+
+    fn push_n_str(&mut self, n: usize, s: &str) {
+        for _ in 0..n {
+            self.push_str(s);
+        }
+    }
+
+    /// Clears the all contents of `env`'s local variables,
+    /// resetting the codegen's stack pointer to base as well.
+    fn clear_environment(&mut self, env: Environment) {
+        let locals_size = self.stack_pointer - env.stack_base;
+        
+        self.push_n_str(locals_size, "<[-]");
+
+        self.stack_pointer = env.stack_base;
+    }
+
+    /// Adds `declaration` to the environment, reserving space for
+    /// it and adding it to `env.variables`.
+    /// 
+    /// Assumes the stack pointer is at the appropriate location
+    /// to insert the variable.
+    fn add_variable(&mut self, env: &mut Environment<'src, '_>, declaration: Node) {
+        debug_assert_eq!(declaration.kind(), "declaration");
+
+        fields!(declaration: declarator, r#type);
+
+        // Sizes over 1 coming soon...
+        let size: usize = match self.src(&r#type) {
+            "char" | "bool" => 1,
+            _ => unimplemented!(),
+        };
+
+        let name = match declarator.kind() {
+            "array_declarator" => unimplemented!(),
+            "attributed_declarator" => unimplemented!(),
+            "function_declarator" => unimplemented!(),
+            "gnu_asm_expression" => unimplemented!(),
+            "identifier" => self.src(&declarator),
+            "init_declarator" => {
+                fields!(declarator: declarator /* , value */);
+                assert_eq!(declarator.kind(), "identifier", "Only supporting basic declarations at present");
+
+                self.src(&declarator)
+            },
+            "ms_call_modifier" => unimplemented!(),
+            "parenthesized_declarator" => unimplemented!(),
+            "pointer_declarator" => unimplemented!(),
+            _ => unreachable!(),
+        };
+
+        if env.lookup(name).is_some() {
+            panic!("Colliding variable declaration");
+        }
+
+        env.variables.insert(name, self.stack_pointer);
+
+        self.push_n(size, '>');
+        self.stack_pointer += size;
     }
 
     /// Top-level call to compile the C file to BF.
@@ -236,7 +288,7 @@ impl<'src> Codegen<'src> {
             .named_children(&mut node.walk())
             .filter(|node| node.kind() == "declaration")
         {
-            env.reserve_space(&declaration, self);
+            self.add_variable(&mut env, declaration);
         }
 
         for node in node.named_children(&mut node.walk()) {
@@ -257,7 +309,7 @@ impl<'src> Codegen<'src> {
             }
         }
 
-        env.clear(self);
+        self.clear_environment(env);
     }
 
     /// Generates code for a variable declaration, assuming
@@ -342,7 +394,7 @@ impl<'src> Codegen<'src> {
                     stack_base: self.stack_pointer,
                 };
 
-                outer_env.reserve_space(&initializer, self);
+                self.add_variable(&mut outer_env, initializer);
 
                 self.expression(&condition, &outer_env);
                 self.push('<');
@@ -729,39 +781,5 @@ impl<'src> Codegen<'src> {
                 _ => unreachable!(),
             }
         }
-    }
-
-    /// Returns a string slice to the exact source code
-    /// corresponding to a `Node`.
-    fn src(&self, node: &Node) -> &'src str {
-        node.utf8_text(self.src.as_bytes())
-            .expect("source code should be valid UTF-8")
-    }
-
-    /// Pushes a `c` to the generated BF code.
-    fn push(&mut self, c: char) {
-        debug_assert!(matches!(
-            c,
-            '>' | '<' | '+' | '-' | '.' | ',' | '[' | ']' | '@'
-        ));
-
-        self.output.push(c);
-    }
-
-    /// Pushes `n` instances of `c` to the generated BF code.
-    fn push_n(&mut self, n: usize, c: char) {
-        for _ in 0..n {
-            self.push(c);
-        }
-    }
-
-    /// Pushes `s` to the generated BF code.
-    fn push_str(&mut self, s: &str) {
-        debug_assert!(
-            s.chars()
-                .all(|c| matches!(c, '>' | '<' | '+' | '-' | '.' | ',' | '[' | ']' | '@'))
-        );
-
-        self.output.push_str(s);
     }
 }
