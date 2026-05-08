@@ -228,6 +228,8 @@ impl<'src> Codegen<'src> {
     /// For the purposes of this project this refers to
     /// a parsed C file.
     fn translation_unit(&mut self, root: Node) {
+        debug_assert_eq!(root.kind(), "translation_unit");
+        
         for node in root.named_children(&mut root.walk()) {
             match node.kind() {
                 "attributed_statement" => todo!(),
@@ -277,6 +279,13 @@ impl<'src> Codegen<'src> {
     /// Generate code for the `main` function, which is
     /// where program execution begins.
     fn main(&mut self, node: Node) {
+        debug_assert!(node.kind() == "function_definition" && {
+            fields!(node: declarator);
+            fields!(declarator: declarator);
+
+            self.src(declarator) == "main"
+        });
+        
         fields!(node: body);
 
         self.compound_statement(body, None);
@@ -286,6 +295,8 @@ impl<'src> Codegen<'src> {
     /// as a `compound_statement`). Creates a new environment for
     /// the local variables declared here.
     fn compound_statement(&mut self, node: Node, parent: Option<&Environment<'src, '_>>) {
+        debug_assert_eq!(node.kind(), "compound_statement");
+        
         let mut env = Environment {
             parent,
             variables: HashMap::new(),
@@ -323,6 +334,8 @@ impl<'src> Codegen<'src> {
     /// Generates code for a variable declaration, assuming
     /// the environment already has an assigned location for it.
     fn declaration(&mut self, node: Node, env: &Environment) {
+        debug_assert_eq!(node.kind(), "declaration");
+        
         fields!(node: declarator, r#type);
 
         match self.src(r#type) {
@@ -351,6 +364,8 @@ impl<'src> Codegen<'src> {
 
     /// Generates code for any statement.
     fn statement(&mut self, node: Node, env: &Environment<'src, '_>) {
+        debug_assert!(is_statement(node.kind()));
+        
         match node.kind() {
             "attributed_statement" => todo!(),
             "break_statement" => todo!(),
@@ -495,6 +510,8 @@ impl<'src> Codegen<'src> {
 
     /// Evaluates any expression and leaves its value on stack.
     fn expression(&mut self, node: Node, env: &Environment) {
+        debug_assert!(is_expression(node.kind()));
+        
         match node.kind() {
             "alignof_expression" => todo!(),
 
@@ -767,6 +784,8 @@ impl<'src> Codegen<'src> {
     /// operation order in expressions) and pushes its
     /// value onto stack.
     fn parenthesized_expression(&mut self, node: Node, env: &Environment) {
+        debug_assert_eq!(node.kind(), "parenthesized_expression");
+        
         let child = node.named_child(0).unwrap();
 
         match child.kind() {
@@ -781,6 +800,8 @@ impl<'src> Codegen<'src> {
     /// Pushes the value of each of the passed arguments
     /// onto stack sequentially.
     fn argument_list(&mut self, node: Node, env: &Environment) {
+        debug_assert_eq!(node.kind(), "argument_list");
+        
         for argument in node.named_children(&mut node.walk()) {
             match argument.kind() {
                 "compound_statement" => todo!(),
