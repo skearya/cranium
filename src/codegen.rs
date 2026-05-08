@@ -236,15 +236,15 @@ impl<'src> Codegen<'src> {
 
         for node in root.named_children(&mut root.walk()) {
             match node.kind() {
-                "attributed_statement" => todo!(),
-                "break_statement" => todo!(),
-                "case_statement" => todo!(),
-                "compound_statement" => todo!(),
-                "continue_statement" => todo!(),
+                "attributed_statement" => unimplemented!(),
+                "break_statement" => unimplemented!(),
+                "case_statement" => unimplemented!(),
+                "compound_statement" => unimplemented!(),
+                "continue_statement" => unimplemented!(),
                 "declaration" => todo!(),
-                "do_statement" => todo!(),
-                "expression_statement" => todo!(),
-                "for_statement" => todo!(),
+                "do_statement" => unimplemented!(),
+                "expression_statement" => unimplemented!(),
+                "for_statement" => unimplemented!(),
                 "function_definition" => {
                     let function_name = field!((node) ::  declarator :: declarator);
 
@@ -252,26 +252,24 @@ impl<'src> Codegen<'src> {
                         self.main(node);
                     }
                 }
-                "goto_statement" => todo!(),
-                "if_statement" => todo!(),
-                "labeled_statement" => todo!(),
-                "linkage_specification" => todo!(),
-                "preproc_call" => todo!(),
+                "goto_statement" => unimplemented!(),
+                "if_statement" => unimplemented!(),
+                "labeled_statement" => unimplemented!(),
+                "linkage_specification" => unimplemented!(),
+                "preproc_call" => unimplemented!(),
                 "preproc_def" => todo!(),
                 "preproc_function_def" => todo!(),
                 "preproc_if" => todo!(),
                 "preproc_ifdef" => todo!(),
-                "preproc_include" => {
-                    println!("imports aren't supported yet");
-                }
-                "return_statement" => todo!(),
-                "switch_statement" => todo!(),
+                "preproc_include" => todo!(),
+                "return_statement" => unimplemented!(),
+                "switch_statement" => unimplemented!(),
                 "type_definition" => todo!(),
                 // haha this is actually several kinds!
                 // if only the tree sitter api wasnt
                 // so incredibly sloppy...
                 "type_specifier" => todo!(),
-                "while_statement" => todo!(),
+                "while_statement" => unimplemented!(),
                 _ => unreachable!(),
             }
         }
@@ -311,13 +309,13 @@ impl<'src> Codegen<'src> {
             match node.kind() {
                 "declaration" => self.declaration(node, &env),
                 "function_definition" => todo!(),
-                "linkage_specification" => todo!(),
-                "preproc_call" => todo!(),
-                "preproc_def" => todo!(),
-                "preproc_function_def" => todo!(),
-                "preproc_if" => todo!(),
-                "preproc_ifdef" => todo!(),
-                "preproc_include" => todo!(),
+                "linkage_specification" => unimplemented!(),
+                "preproc_call" => unimplemented!(),
+                "preproc_def" => unimplemented!(),
+                "preproc_function_def" => unimplemented!(),
+                "preproc_if" => unimplemented!(),
+                "preproc_ifdef" => unimplemented!(),
+                "preproc_include" => unimplemented!(),
                 "type_definition" => todo!(),
                 "type_specifier" => todo!(),
                 kind if is_statement(kind) => self.statement(node, &env),
@@ -376,12 +374,12 @@ impl<'src> Codegen<'src> {
         debug_assert!(is_statement(node.kind()));
 
         match node.kind() {
-            "attributed_statement" => todo!(),
-            "break_statement" => todo!(),
-            "case_statement" => todo!(),
+            "attributed_statement" => unimplemented!(),
+            "break_statement" => unimplemented!(),
+            "case_statement" => unimplemented!(),
             "compound_statement" => self.compound_statement(node, Some(env)),
-            "continue_statement" => todo!(),
-            "do_statement" => todo!(),
+            "continue_statement" => unimplemented!(),
+            "do_statement" => unimplemented!(),
             "expression_statement" => {
                 // evaluate, then clear
 
@@ -402,13 +400,13 @@ impl<'src> Codegen<'src> {
                 }
             }
             "for_statement" => self.for_statement(node, &env),
-            "goto_statement" => todo!(),
+            "goto_statement" => unimplemented!(),
             "if_statement" => self.if_statement(node, &env),
-            "labeled_statement" => todo!(),
+            "labeled_statement" => unimplemented!(),
             "return_statement" => todo!(),
-            "seh_leave_statement" => todo!(),
-            "seh_try_statement" => todo!(),
-            "switch_statement" => todo!(),
+            "seh_leave_statement" => unimplemented!(),
+            "seh_try_statement" => unimplemented!(),
+            "switch_statement" => unimplemented!(),
             "while_statement" => self.while_statement(node, &env),
             _ => unreachable!(),
         }
@@ -557,7 +555,7 @@ impl<'src> Codegen<'src> {
         debug_assert!(is_expression(node.kind()));
 
         match node.kind() {
-            "alignof_expression" => todo!(),
+            "alignof_expression" => unimplemented!(),
             "assignment_expression" => self.assignment_expression(node, &env),
             "binary_expression" => self.binary_expression(node, &env),
             // TODO: this sucks and doesnt clear stack but ig it doesnt matter
@@ -575,12 +573,12 @@ impl<'src> Codegen<'src> {
 
                 self.stack_pointer -= arguments.named_child_count();
             }
-            "cast_expression" => todo!(),
+            "cast_expression" => unimplemented!(),
             "char_literal" => self.char_literal_expression(node),
             "compound_literal_expression" => todo!(),
-            "concatenated_string" => todo!(),
+            "concatenated_string" => unimplemented!(),
             "conditional_expression" => todo!(),
-            "extension_expression" => todo!(),
+            "extension_expression" => unimplemented!(),
             "false" => {
                 // zero!
 
@@ -588,8 +586,8 @@ impl<'src> Codegen<'src> {
                 self.stack_pointer += 1;
             }
             "field_expression" => todo!(),
-            "generic_expression" => todo!(),
-            "gnu_asm_expression" => todo!(),
+            "generic_expression" => unimplemented!(),
+            "gnu_asm_expression" => unimplemented!(),
             "identifier" => self.identifier(node, &env),
             "null" => todo!(),
             "number_literal" => {
@@ -599,9 +597,9 @@ impl<'src> Codegen<'src> {
                 self.push('>');
                 self.stack_pointer += 1;
             }
-            "offsetof_expression" => todo!(),
+            "offsetof_expression" => unimplemented!(),
             "parenthesized_expression" => self.parenthesized_expression(node, env),
-            "pointer_expression" => todo!(),
+            "pointer_expression" => unimplemented!(),
             "sizeof_expression" => todo!(),
             "string_literal" => todo!(),
             "subscript_expression" => todo!(),
@@ -645,27 +643,27 @@ impl<'src> Codegen<'src> {
         let (left, operator, right) = field!((node) :: {left, operator, right});
 
         match left.kind() {
-            "call_expression" => todo!(),
+            "call_expression" => unimplemented!(),
             "field_expression" => todo!(),
             "identifier" => {}
             "parenthesized_expression" => todo!(),
-            "pointer_expression" => todo!(),
+            "pointer_expression" => unimplemented!(),
             "subscript_expression" => todo!(),
             _ => unreachable!(),
         }
 
         match self.src(operator) {
             "%=" => todo!(),
-            "&=" => todo!(),
+            "&=" => unimplemented!(),
             "*=" => todo!(),
             "+=" => todo!(),
             "-=" => todo!(),
             "/=" => todo!(),
-            "<<=" => todo!(),
+            "<<=" => unimplemented!(),
             "=" => {}
-            ">>=" => todo!(),
-            "^=" => todo!(),
-            "|=" => todo!(),
+            ">>=" => unimplemented!(),
+            "^=" => unimplemented!(),
+            "|=" => unimplemented!(),
             _ => unreachable!(),
         }
 
@@ -708,13 +706,13 @@ impl<'src> Codegen<'src> {
 
         let push_left = |s: &mut Codegen<'src>| match left.kind() {
             kind if is_expression(kind) => s.expression(left, env),
-            "preproc_defined" => todo!(),
+            "preproc_defined" => unimplemented!(),
             _ => unreachable!(),
         };
 
         let push_right = |s: &mut Codegen<'src>| match right.kind() {
             kind if is_expression(kind) => s.expression(right, env),
-            "preproc_defined" => todo!(),
+            "preproc_defined" => unimplemented!(),
             _ => unreachable!(),
         };
 
@@ -736,11 +734,11 @@ impl<'src> Codegen<'src> {
             "*" => todo!(),
             "/" => todo!(),
             "%" => todo!(),
-            "<<" => todo!(),
-            ">>" => todo!(),
-            "&" => todo!(),
-            "|" => todo!(),
-            "^" => todo!(),
+            "<<" => unimplemented!(),
+            ">>" => unimplemented!(),
+            "&" => unimplemented!(),
+            "|" => unimplemented!(),
+            "^" => unimplemented!(),
             "==" => {
                 // set flag to 1
                 self.push_str("+>");
@@ -827,10 +825,10 @@ impl<'src> Codegen<'src> {
                 r"\r" => '\r',
                 r"\t" => '\t',
                 r"\v" => '\x0b',
-                esc if esc.starts_with(r"\x") => todo!(),
-                esc if esc.starts_with(r"\u") => todo!(),
-                esc if esc.starts_with(r"\U") => todo!(),
-                esc if esc.starts_with('\\') => todo!(),
+                esc if esc.starts_with(r"\x") => unimplemented!(),
+                esc if esc.starts_with(r"\u") => unimplemented!(),
+                esc if esc.starts_with(r"\U") => unimplemented!(),
+                esc if esc.starts_with('\\') => unimplemented!(),
                 _ => unreachable!(),
             },
             _ => unreachable!(),
@@ -883,9 +881,9 @@ impl<'src> Codegen<'src> {
 
         match child.kind() {
             "comma_expression" => todo!(),
-            "compound_statement" => todo!(),
+            "compound_statement" => unimplemented!(),
             kind if is_expression(kind) => self.expression(child, env),
-            "preproc_defined" => todo!(),
+            "preproc_defined" => unimplemented!(),
             _ => unreachable!(),
         }
     }
@@ -897,9 +895,9 @@ impl<'src> Codegen<'src> {
 
         for argument in node.named_children(&mut node.walk()) {
             match argument.kind() {
-                "compound_statement" => todo!(),
+                "compound_statement" => unimplemented!(),
                 kind if is_expression(kind) => self.expression(argument, env),
-                "preproc_defined" => todo!(),
+                "preproc_defined" => unimplemented!(),
                 _ => unreachable!(),
             }
         }
