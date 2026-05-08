@@ -18,7 +18,7 @@ fn main() {
     let tree = parser.parse(source, None).unwrap();
     let root = tree.root_node();
 
-    let output = Codegen::new(source).generate(&root);
+    let output = Codegen::new(source).generate(root);
 
     println!("codegen = \"{output}\"");
 

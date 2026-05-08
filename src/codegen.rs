@@ -114,7 +114,7 @@ impl<'src> Codegen<'src> {
 
     /// Returns a string slice to the exact source code
     /// corresponding to a `Node`.
-    fn src(&self, node: &Node) -> &'src str {
+    fn src(&self, node: Node) -> &'src str {
         node.utf8_text(self.src.as_bytes())
             .expect("source code should be valid UTF-8")
     }
@@ -146,6 +146,7 @@ impl<'src> Codegen<'src> {
         self.output.push_str(s);
     }
 
+    /// Pushes `n` instances of `s` to the generated BF code.
     fn push_n_str(&mut self, n: usize, s: &str) {
         for _ in 0..n {
             self.push_str(s);
@@ -173,7 +174,7 @@ impl<'src> Codegen<'src> {
         fields!(declaration: declarator, r#type);
 
         // Sizes over 1 coming soon...
-        let size: usize = match self.src(&r#type) {
+        let size: usize = match self.src(r#type) {
             "char" | "bool" => 1,
             _ => unimplemented!(),
         };
@@ -183,12 +184,12 @@ impl<'src> Codegen<'src> {
             "attributed_declarator" => unimplemented!(),
             "function_declarator" => unimplemented!(),
             "gnu_asm_expression" => unimplemented!(),
-            "identifier" => self.src(&declarator),
+            "identifier" => self.src(declarator),
             "init_declarator" => {
                 fields!(declarator: declarator /* , value */);
                 assert_eq!(declarator.kind(), "identifier", "Only supporting basic declarations at present");
 
-                self.src(&declarator)
+                self.src(declarator)
             },
             "ms_call_modifier" => unimplemented!(),
             "parenthesized_declarator" => unimplemented!(),
@@ -207,7 +208,7 @@ impl<'src> Codegen<'src> {
     }
 
     /// Top-level call to compile the C file to BF.
-    pub fn generate(mut self, root: &Node) -> String {
+    pub fn generate(mut self, root: Node) -> String {
         assert_eq!(root.kind(), "translation_unit");
 
         self.translation_unit(root);
@@ -219,7 +220,7 @@ impl<'src> Codegen<'src> {
     /// 
     /// For the purposes of this project this refers to
     /// a parsed C file.
-    fn translation_unit(&mut self, root: &Node) {
+    fn translation_unit(&mut self, root: Node) {
         for node in root.named_children(&mut root.walk()) {
             match node.kind() {
                 "attributed_statement" => todo!(),
@@ -237,8 +238,8 @@ impl<'src> Codegen<'src> {
                     // Access identifier of declarator named "declarator".
                     fields!(declarator: declarator);
 
-                    if self.src(&declarator) == "main" {
-                        self.main(&node);
+                    if self.src(declarator) == "main" {
+                        self.main(node);
                     }
                 }
                 "goto_statement" => todo!(),
@@ -268,16 +269,16 @@ impl<'src> Codegen<'src> {
 
     /// Generate code for the `main` function, which is
     /// where program execution begins.
-    fn main(&mut self, node: &Node) {
+    fn main(&mut self, node: Node) {
         fields!(node: body);
 
-        self.compound_statement(&body, None);
+        self.compound_statement(body, None);
     }
 
     /// This generates code for a scoping block (known internally
     /// as a `compound_statement`). Creates a new environment for
     /// the local variables declared here.
-    fn compound_statement(&mut self, node: &Node, parent: Option<&Environment<'src, '_>>) {
+    fn compound_statement(&mut self, node: Node, parent: Option<&Environment<'src, '_>>) {
         let mut env = Environment {
             parent,
             variables: HashMap::new(),
@@ -293,7 +294,7 @@ impl<'src> Codegen<'src> {
 
         for node in node.named_children(&mut node.walk()) {
             match node.kind() {
-                "declaration" => self.declaration(&node, &env),
+                "declaration" => self.declaration(node, &env),
                 "function_definition" => todo!(),
                 "linkage_specification" => todo!(),
                 "preproc_call" => todo!(),
@@ -304,7 +305,7 @@ impl<'src> Codegen<'src> {
                 "preproc_include" => todo!(),
                 "type_definition" => todo!(),
                 "type_specifier" => todo!(),
-                kind if is_statement(kind) => self.statement(&node, &env),
+                kind if is_statement(kind) => self.statement(node, &env),
                 _ => unreachable!(),
             }
         }
@@ -314,23 +315,23 @@ impl<'src> Codegen<'src> {
 
     /// Generates code for a variable declaration, assuming
     /// the environment already has an assigned location for it.
-    fn declaration(&mut self, node: &Node, env: &Environment) {
+    fn declaration(&mut self, node: Node, env: &Environment) {
         fields!(node: declarator, r#type);
 
-        match self.src(&r#type) {
-            "char" | "bool" => {}
+        match self.src(r#type) {
+            "char" | "bool" => {},
             _ => todo!(),
         }
 
         fields!(declarator: value);
         fields!(declarator: declarator);
 
-        self.expression(&value, env);
+        self.expression(value, env);
 
         self.push('<');
         self.stack_pointer -= 1;
 
-        let var_location = env.variables[self.src(&declarator)];
+        let var_location = env.variables[self.src(declarator)];
         let var_offset = self.stack_pointer - var_location;
 
         bf_loop!(self, {
@@ -342,7 +343,7 @@ impl<'src> Codegen<'src> {
     }
 
     /// Generates code for any statement.
-    fn statement(&mut self, node: &Node, env: &Environment<'src, '_>) {
+    fn statement(&mut self, node: Node, env: &Environment<'src, '_>) {
         match node.kind() {
             "attributed_statement" => todo!(),
             "break_statement" => todo!(),
@@ -355,7 +356,7 @@ impl<'src> Codegen<'src> {
 
                 match child.kind() {
                     "comma_expression" => todo!(),
-                    kind if is_expression(kind) => self.expression(&child, env),
+                    kind if is_expression(kind) => self.expression(child, env),
                     _ => unreachable!(),
                 }
             }
@@ -396,18 +397,18 @@ impl<'src> Codegen<'src> {
 
                 self.add_variable(&mut outer_env, initializer);
 
-                self.expression(&condition, &outer_env);
+                self.expression(condition, &outer_env);
                 self.push('<');
                 self.stack_pointer -= 1;
 
                 bf_loop!(self, {
                     self.push_str("[-]");
 
-                    self.statement(&body, &outer_env);
+                    self.statement(body, &outer_env);
 
-                    self.expression(&update, &outer_env);
+                    self.expression(update, &outer_env);
 
-                    self.expression(&condition, &outer_env);
+                    self.expression(condition, &outer_env);
                     self.push('<');
                     self.stack_pointer -= 1;
                 });
@@ -423,7 +424,7 @@ impl<'src> Codegen<'src> {
                     self.push('>');
                     self.stack_pointer += 1;
 
-                    self.parenthesized_expression(&condition, env);
+                    self.parenthesized_expression(condition, env);
 
                     self.push('<');
                     self.stack_pointer -= 1;
@@ -433,7 +434,7 @@ impl<'src> Codegen<'src> {
                         self.push_str("<->");
                         self.push_str("[-]");
 
-                        self.statement(&consequence, env);
+                        self.statement(consequence, env);
                     });
 
                     // Cond space guaranteed to be zero
@@ -444,10 +445,10 @@ impl<'src> Codegen<'src> {
                     bf_loop!(self, {
                         self.push('-');
 
-                        self.statement(&alternative.named_child(0).unwrap(), env);
+                        self.statement(alternative.named_child(0).unwrap(), env);
                     });
                 } else {
-                    self.parenthesized_expression(&condition, env);
+                    self.parenthesized_expression(condition, env);
 
                     self.push('<');
                     self.stack_pointer -= 1;
@@ -455,7 +456,7 @@ impl<'src> Codegen<'src> {
                     bf_loop!(self, {
                         self.push_str("[-]");
 
-                        self.statement(&consequence, env);
+                        self.statement(consequence, env);
                     });
                 }
             }
@@ -467,16 +468,16 @@ impl<'src> Codegen<'src> {
             "while_statement" => {
                 fields!(node: body, condition);
 
-                self.parenthesized_expression(&condition, env);
+                self.parenthesized_expression(condition, env);
                 self.push('<');
                 self.stack_pointer -= 1;
 
                 bf_loop!(self, {
                     self.push_str("[-]");
 
-                    self.statement(&body, env);
+                    self.statement(body, env);
 
-                    self.parenthesized_expression(&condition, env);
+                    self.parenthesized_expression(condition, env);
                     self.push('<');
                     self.stack_pointer -= 1;
                 });
@@ -486,7 +487,7 @@ impl<'src> Codegen<'src> {
     }
 
     /// Evaluates any expression and leaves its value on stack.
-    fn expression(&mut self, node: &Node, env: &Environment) {
+    fn expression(&mut self, node: Node, env: &Environment) {
         match node.kind() {
             "alignof_expression" => todo!(),
 
@@ -504,7 +505,7 @@ impl<'src> Codegen<'src> {
                     _ => unreachable!(),
                 }
 
-                match self.src(&operator) {
+                match self.src(operator) {
                     "%=" => todo!(),
                     "&=" => todo!(),
                     "*=" => todo!(),
@@ -519,13 +520,13 @@ impl<'src> Codegen<'src> {
                     _ => unreachable!(),
                 }
 
-                self.expression(&right, env);
+                self.expression(right, env);
 
                 self.push('<');
                 self.stack_pointer -= 1;
 
                 let var_location = env
-                    .lookup(self.src(&left))
+                    .lookup(self.src(left))
                     .expect("variable should've been found");
                 let var_offset = self.stack_pointer - var_location;
 
@@ -545,18 +546,18 @@ impl<'src> Codegen<'src> {
                 fields!(node: left, operator, right);
 
                 let push_left = |s: &mut Codegen<'src>| match left.kind() {
-                    kind if is_expression(kind) => s.expression(&left, env),
+                    kind if is_expression(kind) => s.expression(left, env),
                     "preproc_defined" => todo!(),
                     _ => unreachable!(),
                 };
 
                 let push_right = |s: &mut Codegen<'src>| match right.kind() {
-                    kind if is_expression(kind) => s.expression(&right, env),
+                    kind if is_expression(kind) => s.expression(right, env),
                     "preproc_defined" => todo!(),
                     _ => unreachable!(),
                 };
 
-                match self.src(&operator) {
+                match self.src(operator) {
                     "+" => {
                         push_left(self);
                         push_right(self);
@@ -623,10 +624,10 @@ impl<'src> Codegen<'src> {
             "call_expression" => {
                 fields!(node: function, arguments);
 
-                self.argument_list(&arguments, env);
+                self.argument_list(arguments, env);
 
                 // TODO: Functions can be any expression
-                match self.src(&function) {
+                match self.src(function) {
                     "putchar" => self.push_str("<.[-]"),
                     _ => panic!(),
                 }
@@ -643,8 +644,8 @@ impl<'src> Codegen<'src> {
                 let child = node.named_child(0).unwrap();
 
                 let char = match child.kind() {
-                    "character" => self.src(&child).chars().next().unwrap(),
-                    "escape_sequence" => match self.src(&child) {
+                    "character" => self.src(child).chars().next().unwrap(),
+                    "escape_sequence" => match self.src(child) {
                         r"\'" => '\'',
                         r#"\""# => '\"',
                         r"\?" => '?',
@@ -736,13 +737,13 @@ impl<'src> Codegen<'src> {
                 debug_assert_eq!(argument.kind(), "identifier", "update expression lvalue must be an identifier");
 
                 let var_location = env
-                    .lookup(self.src(&argument))
+                    .lookup(self.src(argument))
                     .expect("Variable not found");
                 let var_offset = self.stack_pointer - var_location;
 
                 self.push_n(var_offset, '<');
 
-                self.push(match self.src(&operator) {
+                self.push(match self.src(operator) {
                     "++" => '+',
                     "--" => '-',
                     _ => unreachable!(),
@@ -758,13 +759,13 @@ impl<'src> Codegen<'src> {
     /// this is just syntactically required or to indicate
     /// operation order in expressions) and pushes its
     /// value onto stack.
-    fn parenthesized_expression(&mut self, node: &Node, env: &Environment) {
+    fn parenthesized_expression(&mut self, node: Node, env: &Environment) {
         let child = node.named_child(0).unwrap();
 
         match child.kind() {
             "comma_expression" => todo!(),
             "compound_statement" => todo!(),
-            kind if is_expression(kind) => self.expression(&child, env),
+            kind if is_expression(kind) => self.expression(child, env),
             "preproc_defined" => todo!(),
             _ => unreachable!(),
         }
@@ -772,11 +773,11 @@ impl<'src> Codegen<'src> {
 
     /// Pushes the value of each of the passed arguments
     /// onto stack sequentially.
-    fn argument_list(&mut self, node: &Node, env: &Environment) {
+    fn argument_list(&mut self, node: Node, env: &Environment) {
         for argument in node.named_children(&mut node.walk()) {
             match argument.kind() {
                 "compound_statement" => todo!(),
-                kind if is_expression(kind) => self.expression(&argument, env),
+                kind if is_expression(kind) => self.expression(argument, env),
                 "preproc_defined" => todo!(),
                 _ => unreachable!(),
             }
