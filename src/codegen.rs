@@ -20,7 +20,7 @@ pub struct Codegen<'src> {
 
 /// Information about a scope's variables, regarding
 /// where they reside and where the locals begin.
-/// 
+///
 /// Allows redefining variables inside inner scopes
 /// while leaving their value in outer scopes unchanged.
 struct Environment<'src, 'a> {
@@ -157,7 +157,7 @@ impl<'src> Codegen<'src> {
     /// resetting the codegen's stack pointer to base as well.
     fn clear_environment(&mut self, env: Environment) {
         let locals_size = self.stack_pointer - env.stack_base;
-        
+
         self.push_n_str(locals_size, "<[-]");
 
         self.stack_pointer = env.stack_base;
@@ -165,7 +165,7 @@ impl<'src> Codegen<'src> {
 
     /// Adds `declaration` to the environment, reserving space for
     /// it and adding it to `env.variables`.
-    /// 
+    ///
     /// Assumes the stack pointer is at the appropriate location
     /// to insert the variable.
     fn add_variable(&mut self, env: &mut Environment<'src, '_>, declaration: Node) {
@@ -187,10 +187,14 @@ impl<'src> Codegen<'src> {
             "identifier" => self.src(declarator),
             "init_declarator" => {
                 fields!(declarator: declarator /* , value */);
-                assert_eq!(declarator.kind(), "identifier", "Only supporting basic declarations at present");
+                assert_eq!(
+                    declarator.kind(),
+                    "identifier",
+                    "Only supporting basic declarations at present"
+                );
 
                 self.src(declarator)
-            },
+            }
             "ms_call_modifier" => unimplemented!(),
             "parenthesized_declarator" => unimplemented!(),
             "pointer_declarator" => unimplemented!(),
@@ -215,7 +219,7 @@ impl<'src> Codegen<'src> {
             .expect("Error loading C parser");
         let tree = parser.parse(self.src, None).unwrap();
         let root = tree.root_node();
-        
+
         assert_eq!(root.kind(), "translation_unit");
 
         self.translation_unit(root);
@@ -224,12 +228,12 @@ impl<'src> Codegen<'src> {
     }
 
     /// Generate code for a `translation_unit` node.
-    /// 
+    ///
     /// For the purposes of this project this refers to
     /// a parsed C file.
     fn translation_unit(&mut self, root: Node) {
         debug_assert_eq!(root.kind(), "translation_unit");
-        
+
         for node in root.named_children(&mut root.walk()) {
             match node.kind() {
                 "attributed_statement" => todo!(),
@@ -279,13 +283,15 @@ impl<'src> Codegen<'src> {
     /// Generate code for the `main` function, which is
     /// where program execution begins.
     fn main(&mut self, node: Node) {
-        debug_assert!(node.kind() == "function_definition" && {
-            fields!(node: declarator);
-            fields!(declarator: declarator);
+        debug_assert!(
+            node.kind() == "function_definition" && {
+                fields!(node: declarator);
+                fields!(declarator: declarator);
 
-            self.src(declarator) == "main"
-        });
-        
+                self.src(declarator) == "main"
+            }
+        );
+
         fields!(node: body);
 
         self.compound_statement(body, None);
@@ -296,7 +302,7 @@ impl<'src> Codegen<'src> {
     /// the local variables declared here.
     fn compound_statement(&mut self, node: Node, parent: Option<&Environment<'src, '_>>) {
         debug_assert_eq!(node.kind(), "compound_statement");
-        
+
         let mut env = Environment {
             parent,
             variables: HashMap::new(),
@@ -335,11 +341,11 @@ impl<'src> Codegen<'src> {
     /// the environment already has an assigned location for it.
     fn declaration(&mut self, node: Node, env: &Environment) {
         debug_assert_eq!(node.kind(), "declaration");
-        
+
         fields!(node: declarator, r#type);
 
         match self.src(r#type) {
-            "char" | "bool" => {},
+            "char" | "bool" => {}
             _ => todo!(),
         }
 
@@ -365,7 +371,7 @@ impl<'src> Codegen<'src> {
     /// Generates code for any statement.
     fn statement(&mut self, node: Node, env: &Environment<'src, '_>) {
         debug_assert!(is_statement(node.kind()));
-        
+
         match node.kind() {
             "attributed_statement" => todo!(),
             "break_statement" => todo!(),
@@ -382,136 +388,160 @@ impl<'src> Codegen<'src> {
                     _ => unreachable!(),
                 }
             }
-            "for_statement" => {
-                fields!(node: body);
-
-                // this is semantically equivalent to `fields`?
-                optional_fields!(node: initializer, condition, update);
-                let initializer = initializer.unwrap();
-                let condition = condition.unwrap();
-                let update = update.unwrap();
-
-
-                match initializer.kind() {
-                    "comma_expression" => todo!(),
-                    "declaration" => {}
-                    kind if is_expression(kind) => todo!(),
-                    _ => unreachable!(),
-                }
-
-                match condition.kind() {
-                    "comma_expression" => todo!(),
-                    kind if is_expression(kind) => {}
-                    _ => unreachable!(),
-                }
-
-                match update.kind() {
-                    "comma_expression" => todo!(),
-                    kind if is_expression(kind) => {}
-                    _ => unreachable!(),
-                }
-
-                let mut outer_env = Environment {
-                    parent: Some(env),
-                    variables: HashMap::new(),
-                    stack_base: self.stack_pointer,
-                };
-
-                self.add_variable(&mut outer_env, initializer);
-
-                self.expression(condition, &outer_env);
-                self.push('<');
-                self.stack_pointer -= 1;
-
-                bf_loop!(self, {
-                    self.push_str("[-]");
-
-                    self.statement(body, &outer_env);
-
-                    self.expression(update, &outer_env);
-
-                    self.expression(condition, &outer_env);
-                    self.push('<');
-                    self.stack_pointer -= 1;
-                });
-            }
+            "for_statement" => self.for_statement(node, &env),
             "goto_statement" => todo!(),
-            "if_statement" => {
-                fields!(node: condition, consequence);
-                optional_fields!(node: alternative);
-
-                if let Some(alternative) = alternative {
-                    // Init flag to 1
-                    self.push('+');
-                    self.push('>');
-                    self.stack_pointer += 1;
-
-                    self.parenthesized_expression(condition, env);
-
-                    self.push('<');
-                    self.stack_pointer -= 1;
-
-                    // Not actual loop. Resets flag if cond != 0
-                    bf_loop!(self, {
-                        self.push_str("<->");
-                        self.push_str("[-]");
-
-                        self.statement(consequence, env);
-                    });
-
-                    // Cond space guaranteed to be zero
-                    self.push('<');
-                    self.stack_pointer -= 1;
-
-                    // Another not-a-loop. Executes on flag
-                    bf_loop!(self, {
-                        self.push('-');
-
-                        self.statement(alternative.named_child(0).unwrap(), env);
-                    });
-                } else {
-                    self.parenthesized_expression(condition, env);
-
-                    self.push('<');
-                    self.stack_pointer -= 1;
-
-                    bf_loop!(self, {
-                        self.push_str("[-]");
-
-                        self.statement(consequence, env);
-                    });
-                }
-            }
+            "if_statement" => self.if_statement(node, &env),
             "labeled_statement" => todo!(),
             "return_statement" => todo!(),
             "seh_leave_statement" => todo!(),
             "seh_try_statement" => todo!(),
             "switch_statement" => todo!(),
-            "while_statement" => {
-                fields!(node: body, condition);
-
-                self.parenthesized_expression(condition, env);
-                self.push('<');
-                self.stack_pointer -= 1;
-
-                bf_loop!(self, {
-                    self.push_str("[-]");
-
-                    self.statement(body, env);
-
-                    self.parenthesized_expression(condition, env);
-                    self.push('<');
-                    self.stack_pointer -= 1;
-                });
-            }
+            "while_statement" => self.while_statement(node, &env),
             _ => unreachable!(),
         }
     }
 
-    /// Evaluates any expression and leaves its value on stack.
+    /// Generates code for a `for` statement.
+    fn for_statement(&mut self, node: Node, env: &Environment<'src, '_>) {
+        debug_assert_eq!(node.kind(), "for_statement");
+
+        fields!(node: body);
+        optional_fields!(node: initializer, condition, update);
+
+        // The environment wherein the for loop expressions/statements exist
+        let mut outer_env = Environment {
+            parent: Some(env),
+            variables: HashMap::new(),
+            stack_base: self.stack_pointer,
+        };
+
+        if let Some(initializer) = initializer {
+            match initializer.kind() {
+                "comma_expression" => todo!(),
+                "declaration" => self.add_variable(&mut outer_env, initializer),
+                kind if is_expression(kind) => todo!(),
+                _ => unreachable!(),
+            }
+        }
+
+        // pushes condition then moves head back so it's examining it
+        let examine_condition = |cg: &mut Self| {
+            if let Some(condition) = condition {
+                match condition.kind() {
+                    "comma_expression" => todo!(),
+                    kind if is_expression(kind) => cg.expression(condition, &outer_env),
+                    _ => unreachable!(),
+                }
+            }
+
+            cg.push('<');
+            cg.stack_pointer -= 1;
+        };
+
+        examine_condition(self);
+
+        bf_loop!(self, {
+            // clear cond if true
+            self.push_str("[-]");
+
+            // common case is compound_statement;
+            // in which case, new environment created,
+            // which is correct behavior.
+            self.statement(body, &outer_env);
+
+            if let Some(update) = update {
+                match update.kind() {
+                    "comma_expression" => todo!(),
+                    kind if is_expression(kind) => self.expression(update, &outer_env),
+                    _ => unreachable!(),
+                }
+            }
+
+            examine_condition(self);
+        });
+
+        self.clear_environment(outer_env);
+    }
+
+    /// Generates code for an `if` statement.
+    fn if_statement(&mut self, node: Node, env: &Environment<'src, '_>) {
+        debug_assert_eq!(node.kind(), "if_statement");
+
+        fields!(node: condition, consequence);
+        optional_fields!(node: alternative);
+
+        if let Some(alternative) = alternative {
+            // Init flag to 1
+            self.push('+');
+            self.push('>');
+            self.stack_pointer += 1;
+
+            // Examine condition
+            self.parenthesized_expression(condition, env);
+            self.push('<');
+            self.stack_pointer -= 1;
+
+            // If cond != 0, set flag = 0, eval consequence
+            bf_loop!(self, {
+                self.push_str("<->");
+                self.push_str("[-]");
+
+                self.statement(consequence, env);
+            });
+
+            // Cond space guaranteed to be zero, moving to examine flag
+            self.push('<');
+            self.stack_pointer -= 1;
+
+            // If flag != 0 (i.e., cond not satisfied), eval alternative
+            bf_loop!(self, {
+                self.push('-');
+
+                self.statement(alternative.named_child(0).unwrap(), env);
+            });
+        } else {
+            // Examine condition
+            self.parenthesized_expression(condition, env);
+            self.push('<');
+            self.stack_pointer -= 1;
+
+            // If cond != 0, set zero and eval consequence
+            bf_loop!(self, {
+                self.push_str("[-]");
+
+                self.statement(consequence, env);
+            });
+        }
+    }
+
+    /// Generates code for a `while` statement.
+    fn while_statement(&mut self, node: Node, env: &Environment<'src, '_>) {
+        debug_assert_eq!(node.kind(), "while_statement");
+
+        fields!(node: body, condition);
+
+        // Examine condition
+        self.parenthesized_expression(condition, env);
+        self.push('<');
+        self.stack_pointer -= 1;
+
+        // If cond != 0, clear and evaluate body
+        bf_loop!(self, {
+            self.push_str("[-]");
+
+            self.statement(body, env);
+
+            // Examine condition again so we can run it back
+            self.parenthesized_expression(condition, env);
+            self.push('<');
+            self.stack_pointer -= 1;
+        });
+    }
+
+    /// Evaluates any expression and pushes its value onto stack.
     fn expression(&mut self, node: Node, env: &Environment) {
         debug_assert!(is_expression(node.kind()));
-        
+
         match node.kind() {
             "alignof_expression" => todo!(),
 
@@ -758,11 +788,13 @@ impl<'src> Codegen<'src> {
             "update_expression" => {
                 fields!(node: argument, operator);
 
-                debug_assert_eq!(argument.kind(), "identifier", "update expression lvalue must be an identifier");
+                debug_assert_eq!(
+                    argument.kind(),
+                    "identifier",
+                    "update expression lvalue must be an identifier"
+                );
 
-                let var_location = env
-                    .lookup(self.src(argument))
-                    .expect("Variable not found");
+                let var_location = env.lookup(self.src(argument)).expect("Variable not found");
                 let var_offset = self.stack_pointer - var_location;
 
                 self.push_n(var_offset, '<');
@@ -785,7 +817,7 @@ impl<'src> Codegen<'src> {
     /// value onto stack.
     fn parenthesized_expression(&mut self, node: Node, env: &Environment) {
         debug_assert_eq!(node.kind(), "parenthesized_expression");
-        
+
         let child = node.named_child(0).unwrap();
 
         match child.kind() {
@@ -801,7 +833,7 @@ impl<'src> Codegen<'src> {
     /// onto stack sequentially.
     fn argument_list(&mut self, node: Node, env: &Environment) {
         debug_assert_eq!(node.kind(), "argument_list");
-        
+
         for argument in node.named_children(&mut node.walk()) {
             match argument.kind() {
                 "compound_statement" => todo!(),
