@@ -11,8 +11,8 @@
 /// ```
 /// let parent: Node = /* ... */;
 ///
-/// let deep_child = field2!((parent) :: children :: may :: go :: deep);
-/// let (ggc, gc2) = field2!((parent) :: child :: {grandchild1 :: ggc, grandchild2});
+/// let deep_child = field!((parent) :: children :: may :: go :: deep);
+/// let (ggc, gc2) = field!((parent) :: child :: {grandchild1 :: ggc, grandchild2});
 /// ```
 macro_rules! field {
     (($parent:expr) $(:: $field:ident)+) => {
@@ -25,7 +25,7 @@ macro_rules! field {
             (
                 $(
                     common.child_by_field_name(stringify!($inner_field)).unwrap()
-                    $(.child_by_field_name(stringify!($further_field)))*,
+                    $(.child_by_field_name(stringify!($further_field)).unwrap())*,
                 )+
             )
         }
@@ -35,24 +35,33 @@ macro_rules! field {
 /// Yields children nodes of a parent node, where the children
 /// may or may not exist.
 ///
-/// Does not have capacity for nested accesses; use `field!()`
-/// for that instead.
+/// Sadly branching (using `{...}` syntax) is currently limited
+/// to a single use per macro invocation.
 ///
 /// # Usage
 /// ```
 /// let parent: Node = /* ... */;
 ///
 /// let child1: Option<Node> = optional_field!((parent) :: child_name);
-/// let (kid1, kid2): (Option<Node>, Option<Node>) = optional_field((parent) :: {kid1_name, kid2_name});
+/// let (kid1, kid2): (Option<Node>, Option<Node>) = optional_field!((parent) :: child :: {grandchild1_name :: great_gc, grandchild2_name});
 /// ```
 macro_rules! optional_field {
-    (($parent:expr) :: $field:ident) => {
-        $parent.child_by_field_name(stringify!($field))
+    (($parent:expr) $(:: $field:ident)+) => {
+        Some($parent) $(.and_then(|x| x.child_by_field_name(stringify!($field))))+
     };
-    (($parent:expr) :: { $($field:ident),+ }) => {
-        (
-            $($parent.child_by_field_name(stringify!($field)),)+
-        )
+    (($parent:expr) $(:: $common:ident)* :: { $($field:ident $(:: $further:ident)*),+ }) => {
+        {
+            let common_ancestor = Some($parent)
+                $(.and_then(|x| x.child_by_field_name(stringify!($common))))*;
+
+            (
+                $(
+                    common_ancestor
+                        .and_then(|x| x.child_by_field_name(stringify!($field)))
+                        $(.and_then(|x| x.child_by_field_name(stringify!($further))))*,
+                )+
+            )
+        }
     };
 }
 
