@@ -2,48 +2,57 @@
 //! helpers to work with the -- frankly -- messy API that
 //! tree-sitter provides.
 
-/// Declares new `Node`s that are children of `node`given
-/// respective names.
-/// 
-/// ## Example
+/// Gets named children of a parent `Node`, assuming they exist.
+///
+/// Sadly branching (using `{...}` syntax) is currently limited
+/// to a single use per macro invocation.
+///
+/// # Usage
 /// ```
-/// let parent = Node::new(/* ... */);
-/// fields!(parent: child1, child2);
-/// 
-/// assert!(matches!(child1, Node));
-/// assert!(matches!(child2, Node));
+/// let parent: Node = /* ... */;
+///
+/// let deep_child = field2!((parent) :: children :: may :: go :: deep);
+/// let (ggc, gc2) = field2!((parent) :: child :: {grandchild1 :: ggc, grandchild2});
 /// ```
-macro_rules! fields {
-    ($node:ident: $($field:ident),+) => {
-        $(let $field = $node
-            .child_by_field_name(if stringify!($field) == "r#type" {
-                "type"
-            } else {
-                stringify!($field)
-            })
-            .unwrap();)*
+macro_rules! field {
+    (($parent:expr) $(:: $field:ident)+) => {
+        $parent $(.child_by_field_name(stringify!($field)).unwrap())+
+    };
+    (($parent:expr) $(:: $field:ident)* :: { $($inner_field:ident $(:: $further_field:ident)*),+ }) => {
+        {
+            let common = $parent $(.child_by_field_name(stringify!($field)).unwrap())*;
+
+            (
+                $(
+                    common.child_by_field_name(stringify!($inner_field)).unwrap()
+                    $(.child_by_field_name(stringify!($further_field)))*,
+                )+
+            )
+        }
     };
 }
 
-/// Declares new `Node`s that are optional children of `node`
-/// given respective names.
-/// 
-/// ## Example
+/// Yields children nodes of a parent node, where the children
+/// may or may not exist.
+///
+/// Does not have capacity for nested accesses; use `field!()`
+/// for that instead.
+///
+/// # Usage
 /// ```
-/// let parent = Node::new(/* ... */);
-/// optional_fields!(parent: child1, child2);
-/// 
-/// assert!(matches!(child1, Option<Node>));
-/// assert!(matches!(child2, Option<Node>));
+/// let parent: Node = /* ... */;
+///
+/// let child1: Option<Node> = optional_field!((parent) :: child_name);
+/// let (kid1, kid2): (Option<Node>, Option<Node>) = optional_field((parent) :: {kid1_name, kid2_name});
 /// ```
-macro_rules! optional_fields {
-    ($node:ident: $($field:ident),+) => {
-        $(let $field = $node
-            .child_by_field_name(if stringify!($field) == "r#type" {
-                "type"
-            } else {
-                stringify!($field)
-            });)*
+macro_rules! optional_field {
+    (($parent:expr) :: $field:ident) => {
+        $parent.child_by_field_name(stringify!($field))
+    };
+    (($parent:expr) :: { $($field:ident),+ }) => {
+        (
+            $($parent.child_by_field_name(stringify!($field)),)+
+        )
     };
 }
 
@@ -58,5 +67,4 @@ macro_rules! bf_loop {
 }
 
 pub(crate) use bf_loop;
-pub(crate) use fields;
-pub(crate) use optional_fields;
+pub(crate) use {field, optional_field};

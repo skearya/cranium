@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use tree_sitter::{Node, Parser};
 
-use crate::macros::{bf_loop, fields, optional_fields};
+use crate::macros::{bf_loop, field, optional_field};
 
 /// Stateful type keeping track of the C to BF code
 /// generation.
@@ -171,7 +171,7 @@ impl<'src> Codegen<'src> {
     fn add_variable(&mut self, env: &mut Environment<'src, '_>, declaration: Node) {
         debug_assert_eq!(declaration.kind(), "declaration");
 
-        fields!(declaration: declarator, r#type);
+        let (declarator, r#type) = field!((declaration) :: {declarator, type});
 
         // Sizes over 1 coming soon...
         let size: usize = match self.src(r#type) {
@@ -186,14 +186,14 @@ impl<'src> Codegen<'src> {
             "gnu_asm_expression" => unimplemented!(),
             "identifier" => self.src(declarator),
             "init_declarator" => {
-                fields!(declarator: declarator /* , value */);
+                let (inner_declarator, _) = field!((declarator) :: {declarator, value});
                 assert_eq!(
-                    declarator.kind(),
+                    inner_declarator.kind(),
                     "identifier",
                     "Only supporting basic declarations at present"
                 );
 
-                self.src(declarator)
+                self.src(inner_declarator)
             }
             "ms_call_modifier" => unimplemented!(),
             "parenthesized_declarator" => unimplemented!(),
@@ -246,12 +246,9 @@ impl<'src> Codegen<'src> {
                 "expression_statement" => todo!(),
                 "for_statement" => todo!(),
                 "function_definition" => {
-                    fields!(node: declarator);
+                    let function_name = field!((node) ::  declarator :: declarator);
 
-                    // Access identifier of declarator named "declarator".
-                    fields!(declarator: declarator);
-
-                    if self.src(declarator) == "main" {
+                    if self.src(function_name) == "main" {
                         self.main(node);
                     }
                 }
@@ -284,17 +281,11 @@ impl<'src> Codegen<'src> {
     /// where program execution begins.
     fn main(&mut self, node: Node) {
         debug_assert!(
-            node.kind() == "function_definition" && {
-                fields!(node: declarator);
-                fields!(declarator: declarator);
-
-                self.src(declarator) == "main"
-            }
+            node.kind() == "function_definition"
+                && self.src(field!((node) :: declarator :: declarator)) == "main"
         );
 
-        fields!(node: body);
-
-        self.compound_statement(body, None);
+        self.compound_statement(field!((node) :: body), None);
     }
 
     /// This generates code for a scoping block (known internally
@@ -343,7 +334,8 @@ impl<'src> Codegen<'src> {
                 .values()
                 .max()
                 .map(|&x| x + 1)
-                .unwrap_or(env.stack_base)
+                .unwrap_or(env.stack_base),
+            "Stack not empty on scope exit"
         );
 
         self.clear_environment(env);
@@ -354,22 +346,21 @@ impl<'src> Codegen<'src> {
     fn declaration(&mut self, node: Node, env: &Environment<'src, '_>) {
         debug_assert_eq!(node.kind(), "declaration");
 
-        fields!(node: declarator, r#type);
+        let (declarator, r#type) = field!((node) :: {declarator, type});
 
         match self.src(r#type) {
             "char" | "bool" => {}
             _ => todo!(),
         }
 
-        fields!(declarator: value);
-        fields!(declarator: declarator);
+        let (inner_declarator, value) = field!((declarator) :: {declarator, value});
 
         self.expression(value, env);
 
         self.push('<');
         self.stack_pointer -= 1;
 
-        let var_location = env.variables[self.src(declarator)];
+        let var_location = env.variables[self.src(inner_declarator)];
         let var_offset = self.stack_pointer - var_location;
 
         bf_loop!(self, {
@@ -427,8 +418,9 @@ impl<'src> Codegen<'src> {
     fn for_statement(&mut self, node: Node, env: &Environment<'src, '_>) {
         debug_assert_eq!(node.kind(), "for_statement");
 
-        fields!(node: body);
-        optional_fields!(node: initializer, condition, update);
+        let body = field!((node) :: body);
+        let (initializer, condition, update) =
+            optional_field!((node) :: {initializer, condition, update});
 
         // The environment wherein the for loop expressions/statements exist
         let mut outer_env = Environment {
@@ -489,8 +481,8 @@ impl<'src> Codegen<'src> {
     fn if_statement(&mut self, node: Node, env: &Environment<'src, '_>) {
         debug_assert_eq!(node.kind(), "if_statement");
 
-        fields!(node: condition, consequence);
-        optional_fields!(node: alternative);
+        let (condition, consequence) = field!((node) :: {condition, consequence});
+        let alternative = optional_field!((node) :: alternative);
 
         if let Some(alternative) = alternative {
             // Init flag to 1
@@ -540,7 +532,7 @@ impl<'src> Codegen<'src> {
     fn while_statement(&mut self, node: Node, env: &Environment<'src, '_>) {
         debug_assert_eq!(node.kind(), "while_statement");
 
-        fields!(node: body, condition);
+        let (body, condition) = field!((node) :: {body, condition});
 
         // Examine condition
         self.parenthesized_expression(condition, env);
@@ -568,8 +560,10 @@ impl<'src> Codegen<'src> {
             "alignof_expression" => todo!(),
             "assignment_expression" => self.assignment_expression(node, &env),
             "binary_expression" => self.binary_expression(node, &env),
+            // TODO: this sucks and doesnt clear stack but ig it doesnt matter
+            // gonna overhaul when user functions implemented.
             "call_expression" => {
-                fields!(node: function, arguments);
+                let (function, arguments) = field!((node) :: {function, arguments});
 
                 self.argument_list(arguments, env);
 
@@ -618,7 +612,7 @@ impl<'src> Codegen<'src> {
             }
             "unary_expression" => todo!(),
             "update_expression" => {
-                fields!(node: argument, operator);
+                let (argument, operator) = field!((node) :: {argument, operator});
 
                 debug_assert_eq!(
                     argument.kind(),
@@ -648,7 +642,7 @@ impl<'src> Codegen<'src> {
     fn assignment_expression(&mut self, node: Node, env: &Environment<'src, '_>) {
         debug_assert_eq!(node.kind(), "assignment_expression");
 
-        fields!(node: left, right, operator);
+        let (left, operator, right) = field!((node) :: {left, operator, right});
 
         match left.kind() {
             "call_expression" => todo!(),
@@ -710,7 +704,7 @@ impl<'src> Codegen<'src> {
 
         debug_assert_eq!(node.kind(), "binary_expression");
 
-        fields!(node: left, operator, right);
+        let (left, operator, right) = field!((node) :: {left, operator, right});
 
         let push_left = |s: &mut Codegen<'src>| match left.kind() {
             kind if is_expression(kind) => s.expression(left, env),
