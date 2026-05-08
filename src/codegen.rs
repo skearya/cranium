@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use tree_sitter::Node;
+use tree_sitter::{Node, Parser};
 
 use crate::macros::{bf_loop, fields, optional_fields};
 
@@ -208,7 +208,14 @@ impl<'src> Codegen<'src> {
     }
 
     /// Top-level call to compile the C file to BF.
-    pub fn generate(mut self, root: Node) -> String {
+    pub fn generate(mut self) -> String {
+        let mut parser = Parser::new();
+        parser
+            .set_language(&tree_sitter_c::LANGUAGE.into())
+            .expect("Error loading C parser");
+        let tree = parser.parse(self.src, None).unwrap();
+        let root = tree.root_node();
+        
         assert_eq!(root.kind(), "translation_unit");
 
         self.translation_unit(root);
