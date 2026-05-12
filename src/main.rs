@@ -1,6 +1,7 @@
 mod codegen;
 mod interpreter;
 mod macros;
+mod treesitter_wrapper;
 
 use crate::codegen::Codegen;
 

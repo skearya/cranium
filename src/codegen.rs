@@ -2,15 +2,16 @@
 
 use std::collections::HashMap;
 
-use tree_sitter::{Node, Parser};
+use crate::treesitter_wrapper as ts;
+use ts::*;
 
-use crate::macros::{bf_loop, field, optional_field};
+use crate::macros::bf_loop;
 
 /// Stateful type keeping track of the C to BF code
 /// generation.
-pub struct Codegen<'src> {
+pub struct Codegen {
     /// Source C code.
-    src: &'src str,
+    src: String,
     /// Tracked location of the stack pointer. In other
     /// words, the index that the head is currently at.
     stack_pointer: usize,
@@ -46,78 +47,78 @@ impl<'src> Environment<'src, '_> {
     }
 }
 
-/// Returns whether a `Node::kind()` is a statement
-fn is_statement(kind: &str) -> bool {
-    matches!(
-        kind,
-        "attributed_statement"
-            | "break_statement"
-            | "case_statement"
-            | "compound_statement"
-            | "continue_statement"
-            | "do_statement"
-            | "expression_statement"
-            | "for_statement"
-            | "goto_statement"
-            | "if_statement"
-            | "labeled_statement"
-            | "return_statement"
-            | "seh_leave_statement"
-            | "seh_try_statement"
-            | "switch_statement"
-            | "while_statement"
-    )
-}
+// /// Returns whether a `Node::kind()` is a statement
+// fn is_statement(kind: &str) -> bool {
+//     matches!(
+//         kind,
+//         "attributed_statement"
+//             | "break_statement"
+//             | "case_statement"
+//             | "compound_statement"
+//             | "continue_statement"
+//             | "do_statement"
+//             | "expression_statement"
+//             | "for_statement"
+//             | "goto_statement"
+//             | "if_statement"
+//             | "labeled_statement"
+//             | "return_statement"
+//             | "seh_leave_statement"
+//             | "seh_try_statement"
+//             | "switch_statement"
+//             | "while_statement"
+//     )
+// }
 
-/// Returns whether a `Node::kind()` is an expression.
-fn is_expression(kind: &str) -> bool {
-    matches!(
-        kind,
-        "alignof_expression"
-            | "assignment_expression"
-            | "binary_expression"
-            | "call_expression"
-            | "cast_expression"
-            | "char_literal"
-            | "compound_literal_expression"
-            | "concatenated_string"
-            | "conditional_expression"
-            | "extension_expression"
-            | "false"
-            | "field_expression"
-            | "generic_expression"
-            | "gnu_asm_expression"
-            | "identifier"
-            | "null"
-            | "number_literal"
-            | "offsetof_expression"
-            | "parenthesized_expression"
-            | "pointer_expression"
-            | "sizeof_expression"
-            | "string_literal"
-            | "subscript_expression"
-            | "true"
-            | "unary_expression"
-            | "update_expression"
-    )
-}
+// /// Returns whether a `Node::kind()` is an expression.
+// fn is_expression(kind: &str) -> bool {
+//     matches!(
+//         kind,
+//         "alignof_expression"
+//             | "assignment_expression"
+//             | "binary_expression"
+//             | "call_expression"
+//             | "cast_expression"
+//             | "char_literal"
+//             | "compound_literal_expression"
+//             | "concatenated_string"
+//             | "conditional_expression"
+//             | "extension_expression"
+//             | "false"
+//             | "field_expression"
+//             | "generic_expression"
+//             | "gnu_asm_expression"
+//             | "identifier"
+//             | "null"
+//             | "number_literal"
+//             | "offsetof_expression"
+//             | "parenthesized_expression"
+//             | "pointer_expression"
+//             | "sizeof_expression"
+//             | "string_literal"
+//             | "subscript_expression"
+//             | "true"
+//             | "unary_expression"
+//             | "update_expression"
+//     )
+// }
 
-impl<'src> Codegen<'src> {
+impl<'src> Codegen {
     /// Initializes a `Codegen` object given C source code.
-    pub fn new(src: &'src str) -> Self {
+    pub fn new(src: &str) -> Self {
         Self {
-            src,
+            src: src.to_string(),
             stack_pointer: 0,
             output: String::new(),
         }
     }
 
-    /// Returns a string slice to the exact source code
-    /// corresponding to a `Node`.
-    fn src(&self, node: Node) -> &'src str {
-        node.utf8_text(self.src.as_bytes())
-            .expect("source code should be valid UTF-8")
-    }
+    // /// Returns a string slice to the exact source code
+    // /// corresponding to a `Node`.
+    // fn src(&self, node: TSNode) -> &'src str {
+    //     node.utf8_text(self.src.as_bytes())
+    //         .expect("source code should be valid UTF-8")
+    // }
 
     /// Pushes `c` to the generated BF code.
     fn push(&mut self, c: char) {
@@ -168,37 +169,45 @@ impl<'src> Codegen<'src> {
     ///
     /// Assumes the stack pointer is at the appropriate location
     /// to insert the variable.
-    fn add_variable(&mut self, env: &mut Environment<'src, '_>, declaration: Node) {
-        debug_assert_eq!(declaration.kind(), "declaration");
-
-        let (declarator, r#type) = field!((declaration) :: {declarator, type});
-
+    fn add_variable(&mut self, env: &mut Environment<'src, '_>, declaration: &'src Declaration) {
         // Sizes over 1 coming soon...
-        let size: usize = match self.src(r#type) {
-            "char" | "bool" => 1,
-            _ => unimplemented!(),
+        let size: usize = match *declaration.r#type {
+            TypeSpecifier::PrimitiveType(ref pt) => match pt.src.as_str() {
+                "char" | "bool" => 1,
+                _ => unimplemented!(),
+            },
         };
 
-        let name = match declarator.kind() {
-            "array_declarator" => unimplemented!(),
-            "attributed_declarator" => unimplemented!(),
-            "function_declarator" => unimplemented!(),
-            "gnu_asm_expression" => unimplemented!(),
-            "identifier" => self.src(declarator),
-            "init_declarator" => {
-                let (inner_declarator, _) = field!((declarator) :: {declarator, value});
-                assert_eq!(
-                    inner_declarator.kind(),
-                    "identifier",
-                    "Only supporting basic declarations at present"
-                );
+        // let name = match declarator.kind() {
+        //     "array_declarator" => unimplemented!(),
+        //     "attributed_declarator" => unimplemented!(),
+        //     "function_declarator" => unimplemented!(),
+        //     "gnu_asm_expression" => unimplemented!(),
+        //     "identifier" => self.src(declarator),
+        //     "init_declarator" => {
+        //         let (inner_declarator, _) = field!((declarator) :: {declarator, value});
+        //         assert_eq!(
+        //             inner_declarator.kind(),
+        //             "identifier",
+        //             "Only supporting basic declarations at present"
+        //         );
 
-                self.src(inner_declarator)
-            }
-            "ms_call_modifier" => unimplemented!(),
-            "parenthesized_declarator" => unimplemented!(),
-            "pointer_declarator" => unimplemented!(),
-            _ => unreachable!(),
+        //         self.src(inner_declarator)
+        //     }
+        //     "ms_call_modifier" => unimplemented!(),
+        //     "parenthesized_declarator" => unimplemented!(),
+        //     "pointer_declarator" => unimplemented!(),
+        //     _ => unreachable!(),
+        // };
+
+        let name = match *declaration.declarator {
+            Declarator::Identifier(ref id) => id.src.as_str(),
+            Declarator::InitDeclarator(ref init) => match *init.declarator {
+                Declarator::Identifier(ref id) => id.src.as_str(),
+                Declarator::InitDeclarator(_) => unimplemented!(),
+                Declarator::FunctionDeclarator(_) => unimplemented!(),
+            },
+            Declarator::FunctionDeclarator(_) => unimplemented!(),
         };
 
         if env.lookup(name).is_some() {
@@ -213,16 +222,9 @@ impl<'src> Codegen<'src> {
 
     /// Top-level call to compile the C file to BF.
     pub fn generate(mut self) -> String {
-        let mut parser = Parser::new();
-        parser
-            .set_language(&tree_sitter_c::LANGUAGE.into())
-            .expect("Error loading C parser");
-        let tree = parser.parse(self.src, None).unwrap();
-        let root = tree.root_node();
+        let translation_unit = parse(self.src.as_str());
 
-        assert_eq!(root.kind(), "translation_unit");
-
-        self.translation_unit(root);
+        self.translation_unit(&translation_unit);
 
         self.output
     }
@@ -231,95 +233,130 @@ impl<'src> Codegen<'src> {
     ///
     /// For the purposes of this project this refers to
     /// a parsed C file.
-    fn translation_unit(&mut self, root: Node) {
-        debug_assert_eq!(root.kind(), "translation_unit");
+    fn translation_unit(&mut self, root: &TranslationUnit) {
+        for child in &root.children {
+            match *child.declarator {
+                Declarator::FunctionDeclarator(ref fd) => {
+                    if let Declarator::Identifier(ref func_name) = *fd.declarator
+                        && func_name.src == "main"
+                    {
+                        match *child.r#type {
+                            TypeSpecifier::PrimitiveType(ref t) if t.src.as_str() == "int" => {},
+                            _ => panic!("main function does not have `int` return type"),
+                        }
 
-        for node in root.named_children(&mut root.walk()) {
-            match node.kind() {
-                "attributed_statement" => unimplemented!(),
-                "break_statement" => unimplemented!(),
-                "case_statement" => unimplemented!(),
-                "compound_statement" => unimplemented!(),
-                "continue_statement" => unimplemented!(),
-                "declaration" => todo!(),
-                "do_statement" => unimplemented!(),
-                "expression_statement" => unimplemented!(),
-                "for_statement" => unimplemented!(),
-                "function_definition" => {
-                    let function_name = field!((node) ::  declarator :: declarator);
+                        // sorry it's so unprofessional i just wanted the compiler to shut up
+                        fd.parameters.children.iter().for_each(|x| {
+                            match *x.declarator {
+                                Declarator::Identifier(ref id) => println!("{} dies", id.src),
+                                Declarator::FunctionDeclarator(_) => println!("do NOT even bother passing a function declarator as a function parameter"),
+                                Declarator::InitDeclarator(_) => println!("initialization??? in THIS signature??"),
+                            }
+                            match *x.r#type {
+                                TypeSpecifier::PrimitiveType(ref t) => println!("ESPECIALLY if it's of type {}", t.src),
+                            }
+                            panic!("no chance main has any parameters");
+                        });
 
-                    if self.src(function_name) == "main" {
-                        self.main(node);
+                        self.main(child)
+                    } else {
+                        unimplemented!()
                     }
                 }
-                "goto_statement" => unimplemented!(),
-                "if_statement" => unimplemented!(),
-                "labeled_statement" => unimplemented!(),
-                "linkage_specification" => unimplemented!(),
-                "preproc_call" => unimplemented!(),
-                "preproc_def" => todo!(),
-                "preproc_function_def" => todo!(),
-                "preproc_if" => todo!(),
-                "preproc_ifdef" => todo!(),
-                "preproc_include" => todo!(),
-                "return_statement" => unimplemented!(),
-                "switch_statement" => unimplemented!(),
-                "type_definition" => todo!(),
-                // haha this is actually several kinds!
-                // if only the tree sitter api wasnt
-                // so incredibly sloppy...
-                "type_specifier" => todo!(),
-                "while_statement" => unimplemented!(),
-                _ => unreachable!(),
+                Declarator::Identifier(_) => unimplemented!(),
+                Declarator::InitDeclarator(_) => unimplemented!(),
             }
         }
+
+        // for node in root.named_children(&mut root.walk()) {
+        //     match node.kind() {
+        //         "attributed_statement" => unimplemented!(),
+        //         "break_statement" => unimplemented!(),
+        //         "case_statement" => unimplemented!(),
+        //         "compound_statement" => unimplemented!(),
+        //         "continue_statement" => unimplemented!(),
+        //         "declaration" => todo!(),
+        //         "do_statement" => unimplemented!(),
+        //         "expression_statement" => unimplemented!(),
+        //         "for_statement" => unimplemented!(),
+        //         "function_definition" => {
+        //             let function_name = field!((node) ::  declarator :: declarator);
+
+        //             if self.src(function_name) == "main" {
+        //                 self.main(node);
+        //             }
+        //         }
+        //         "goto_statement" => unimplemented!(),
+        //         "if_statement" => unimplemented!(),
+        //         "labeled_statement" => unimplemented!(),
+        //         "linkage_specification" => unimplemented!(),
+        //         "preproc_call" => unimplemented!(),
+        //         "preproc_def" => todo!(),
+        //         "preproc_function_def" => todo!(),
+        //         "preproc_if" => todo!(),
+        //         "preproc_ifdef" => todo!(),
+        //         "preproc_include" => todo!(),
+        //         "return_statement" => unimplemented!(),
+        //         "switch_statement" => unimplemented!(),
+        //         "type_definition" => todo!(),
+        //         // haha this is actually several kinds!
+        //         // if only the tree sitter api wasnt
+        //         // so incredibly sloppy...
+        //         "type_specifier" => todo!(),
+        //         "while_statement" => unimplemented!(),
+        //         _ => unreachable!(),
+        //     }
+        // }
     }
 
     /// Generate code for the `main` function, which is
     /// where program execution begins.
-    fn main(&mut self, node: Node) {
-        debug_assert!(
-            node.kind() == "function_definition"
-                && self.src(field!((node) :: declarator :: declarator)) == "main"
-        );
-
-        self.compound_statement(field!((node) :: body), None);
+    fn main(&mut self, function: &FunctionDefinition) {
+        self.compound_statement(function.body.as_ref(), None);
     }
 
     /// This generates code for a scoping block (known internally
-    /// as a `compound_statement`). Creates a new environment for
+    /// as a compound statement). Creates a new environment for
     /// the local variables declared here.
-    fn compound_statement(&mut self, node: Node, parent: Option<&Environment<'src, '_>>) {
-        debug_assert_eq!(node.kind(), "compound_statement");
-
+    fn compound_statement(
+        &mut self,
+        node: &CompoundStatement,
+        parent: Option<&Environment<'src, '_>>,
+    ) {
         let mut env = Environment {
             parent,
             variables: HashMap::new(),
             stack_base: self.stack_pointer,
         };
 
-        for declaration in node
-            .named_children(&mut node.walk())
-            .filter(|node| node.kind() == "declaration")
-        {
+        for declaration in node.children.iter().filter_map(|x| match x {
+            BlockChildren::Declaration(d) => Some(d),
+            _ => None,
+        }) {
             self.add_variable(&mut env, declaration);
         }
 
-        for node in node.named_children(&mut node.walk()) {
-            match node.kind() {
-                "declaration" => self.declaration(node, &env),
-                "function_definition" => todo!(),
-                "linkage_specification" => unimplemented!(),
-                "preproc_call" => unimplemented!(),
-                "preproc_def" => unimplemented!(),
-                "preproc_function_def" => unimplemented!(),
-                "preproc_if" => unimplemented!(),
-                "preproc_ifdef" => unimplemented!(),
-                "preproc_include" => unimplemented!(),
-                "type_definition" => todo!(),
-                "type_specifier" => todo!(),
-                kind if is_statement(kind) => self.statement(node, &env),
-                _ => unreachable!(),
+        // for node in node.named_children(&mut node.walk()) {
+        //     match node.kind() {
+        //         "declaration" => self.declaration(node, &env),
+        //         "function_definition" => todo!(),
+        //         "linkage_specification" => unimplemented!(),
+        //         "preproc_call" => unimplemented!(),
+        //         "preproc_def" => unimplemented!(),
+        //         "preproc_function_def" => unimplemented!(),
+        //         "preproc_if" => unimplemented!(),
+        //         "preproc_ifdef" => unimplemented!(),
+        //         "preproc_include" => unimplemented!(),
+        //         "type_definition" => todo!(),
+        //         "type_specifier" => todo!(),
+        //         kind if is_statement(kind) => self.statement(node, &env),
+        //         _ => unreachable!(),
+        //     }
+        // }
+        for child in &node.children {
+            match child {
+                BlockChildren::Declaration(d) => self.declaration(d, &env),
+                BlockChildren::Statement(s) => self.statement(s, &env),
             }
         }
 
@@ -341,57 +378,52 @@ impl<'src> Codegen<'src> {
 
     /// Generates code for a variable declaration, assuming
     /// the environment already has an assigned location for it.
-    fn declaration(&mut self, node: Node, env: &Environment<'src, '_>) {
-        debug_assert_eq!(node.kind(), "declaration");
-
-        let (declarator, r#type) = field!((node) :: {declarator, type});
-
-        match self.src(r#type) {
-            "char" | "bool" => {}
-            _ => todo!(),
+    fn declaration(&mut self, node: &Declaration, env: &Environment<'src, '_>) {
+        // type system here we come
+        match *node.r#type {
+            TypeSpecifier::PrimitiveType(ref pt) => match pt.src.as_str() {
+                "bool" | "char" => {}
+                _ => todo!(),
+            },
         }
 
-        let (inner_declarator, value) = field!((declarator) :: {declarator, value});
+        match *node.declarator {
+            Declarator::Identifier(_) => {}
+            Declarator::InitDeclarator(ref init) => {
+                self.expression(&init.value, env);
 
-        self.expression(value, env);
+                // size-dependent
+                self.push('<');
+                self.stack_pointer -= 1;
 
-        self.push('<');
-        self.stack_pointer -= 1;
+                let var_location = env.variables[match *init.declarator {
+                    Declarator::Identifier(ref id) => id.src.as_str(),
+                    Declarator::InitDeclarator(_) => unimplemented!(),
+                    Declarator::FunctionDeclarator(_) => unimplemented!(),
+                }];
+                let var_offset = self.stack_pointer - var_location;
 
-        let var_location = env.variables[self.src(inner_declarator)];
-        let var_offset = self.stack_pointer - var_location;
-
-        bf_loop!(self, {
-            self.push_n(var_offset, '<');
-            self.push('+');
-            self.push_n(var_offset, '>');
-            self.push('-');
-        });
+                bf_loop!(self, {
+                    self.push_n(var_offset, '<');
+                    self.push('+');
+                    self.push_n(var_offset, '>');
+                    self.push('-');
+                });
+            }
+            Declarator::FunctionDeclarator(_) => unimplemented!(),
+        }
     }
 
     /// Generates code for any statement.
-    fn statement(&mut self, node: Node, env: &Environment<'src, '_>) {
-        debug_assert!(is_statement(node.kind()));
-
-        match node.kind() {
-            "attributed_statement" => unimplemented!(),
-            "break_statement" => unimplemented!(),
-            "case_statement" => unimplemented!(),
-            "compound_statement" => self.compound_statement(node, Some(env)),
-            "continue_statement" => unimplemented!(),
-            "do_statement" => unimplemented!(),
-            "expression_statement" => {
-                // evaluate, then clear
-
-                let child = node.child(0).unwrap();
+    fn statement(&mut self, node: &Statement, env: &Environment<'src, '_>) {
+        match *node {
+            Statement::CompoundStatement(ref cs) => self.compound_statement(cs, Some(env)),
+            Statement::ExpressionStatement(ref es) => {
+                let child = &es.child;
 
                 let old_stack_top = self.stack_pointer;
 
-                match child.kind() {
-                    "comma_expression" => todo!(),
-                    kind if is_expression(kind) => self.expression(child, env),
-                    _ => unreachable!(),
-                }
+                self.expression(child, env);
 
                 let clear_zone_size = self.stack_pointer - old_stack_top;
                 for _ in 0..clear_zone_size {
@@ -399,27 +431,52 @@ impl<'src> Codegen<'src> {
                     self.stack_pointer -= 1;
                 }
             }
-            "for_statement" => self.for_statement(node, &env),
-            "goto_statement" => unimplemented!(),
-            "if_statement" => self.if_statement(node, &env),
-            "labeled_statement" => unimplemented!(),
-            "return_statement" => todo!(),
-            "seh_leave_statement" => unimplemented!(),
-            "seh_try_statement" => unimplemented!(),
-            "switch_statement" => unimplemented!(),
-            "while_statement" => self.while_statement(node, &env),
-            _ => unreachable!(),
+            Statement::ForStatement(ref fs) => self.for_statement(fs, env),
+            Statement::IfStatement(ref is) => self.if_statement(is, env),
+            Statement::WhileStatement(ref ws) => self.while_statement(ws, env),
         }
+
+        // match node.kind() {
+        //     "attributed_statement" => unimplemented!(),
+        //     "break_statement" => unimplemented!(),
+        //     "case_statement" => unimplemented!(),
+        //     "compound_statement" => self.compound_statement(node, Some(env)),
+        //     "continue_statement" => unimplemented!(),
+        //     "do_statement" => unimplemented!(),
+        //     "expression_statement" => {
+        //         // evaluate, then clear
+
+        //         let child = node.child(0).unwrap();
+
+        //         let old_stack_top = self.stack_pointer;
+
+        //         match child.kind() {
+        //             "comma_expression" => todo!(),
+        //             kind if is_expression(kind) => self.expression(child, env),
+        //             _ => unreachable!(),
+        //         }
+
+        //         let clear_zone_size = self.stack_pointer - old_stack_top;
+        //         for _ in 0..clear_zone_size {
+        //             self.push_str("<[-]");
+        //             self.stack_pointer -= 1;
+        //         }
+        //     }
+        //     "for_statement" => self.for_statement(node, &env),
+        //     "goto_statement" => unimplemented!(),
+        //     "if_statement" => self.if_statement(node, &env),
+        //     "labeled_statement" => unimplemented!(),
+        //     "return_statement" => todo!(),
+        //     "seh_leave_statement" => unimplemented!(),
+        //     "seh_try_statement" => unimplemented!(),
+        //     "switch_statement" => unimplemented!(),
+        //     "while_statement" => self.while_statement(node, &env),
+        //     _ => unreachable!(),
+        // }
     }
 
     /// Generates code for a `for` statement.
-    fn for_statement(&mut self, node: Node, env: &Environment<'src, '_>) {
-        debug_assert_eq!(node.kind(), "for_statement");
-
-        let body = field!((node) :: body);
-        let (initializer, condition, update) =
-            optional_field!((node) :: {initializer, condition, update});
-
+    fn for_statement(&mut self, node: &ForStatement, env: &Environment<'src, '_>) {
         // The environment wherein the for loop expressions/statements exist
         let mut outer_env = Environment {
             parent: Some(env),
@@ -427,27 +484,48 @@ impl<'src> Codegen<'src> {
             stack_base: self.stack_pointer,
         };
 
-        if let Some(initializer) = initializer {
-            match initializer.kind() {
-                "comma_expression" => todo!(),
-                "declaration" => self.add_variable(&mut outer_env, initializer),
-                kind if is_expression(kind) => todo!(),
-                _ => unreachable!(),
+        if let Some(initializer) = &node.initializer {
+            match **initializer {
+                ForLoopInitializer::Declaration(ref d) => {
+                    self.add_variable(&mut outer_env, d);
+
+                    self.declaration(d, &outer_env);
+                }
+                ForLoopInitializer::Expression(ref e) => {
+                    let old_sp = self.stack_pointer;
+
+                    self.expression(e, &outer_env);
+
+                    let dist = self.stack_pointer - old_sp;
+                    self.push_n_str(dist, "<[-]");
+                    self.stack_pointer -= dist;
+                }
             }
         }
 
         // pushes condition then moves head back so it's examining it
         let examine_condition = |cg: &mut Self| {
-            if let Some(condition) = condition {
-                match condition.kind() {
-                    "comma_expression" => todo!(),
-                    kind if is_expression(kind) => cg.expression(condition, &outer_env),
-                    _ => unreachable!(),
+            match node.condition {
+                Some(ref cond) => {
+                    cg.expression(cond, &outer_env);
+
+                    cg.push('<');
+                    cg.stack_pointer -= 1;
                 }
+                // always true
+                None => cg.push('+'),
             }
 
-            cg.push('<');
-            cg.stack_pointer -= 1;
+            // if let Some(condition) = condition {
+            //     match condition.kind() {
+            //         "comma_expression" => todo!(),
+            //         kind if is_expression(kind) => cg.expression(condition, &outer_env),
+            //         _ => unreachable!(),
+            //     }
+            // }
+
+            // cg.push('<');
+            // cg.stack_pointer -= 1;
         };
 
         examine_condition(self);
@@ -459,14 +537,16 @@ impl<'src> Codegen<'src> {
             // common case is compound_statement;
             // in which case, new environment created,
             // which is correct behavior.
-            self.statement(body, &outer_env);
+            self.statement(&node.body, &outer_env);
 
-            if let Some(update) = update {
-                match update.kind() {
-                    "comma_expression" => todo!(),
-                    kind if is_expression(kind) => self.expression(update, &outer_env),
-                    _ => unreachable!(),
-                }
+            if let Some(update) = &node.update {
+                let old_sp = self.stack_pointer;
+
+                self.expression(update, &outer_env);
+
+                let dist = self.stack_pointer - old_sp;
+                self.push_n_str(dist, "<[-]");
+                self.stack_pointer -= dist;
             }
 
             examine_condition(self);
@@ -476,20 +556,15 @@ impl<'src> Codegen<'src> {
     }
 
     /// Generates code for an `if` statement.
-    fn if_statement(&mut self, node: Node, env: &Environment<'src, '_>) {
-        debug_assert_eq!(node.kind(), "if_statement");
-
-        let (condition, consequence) = field!((node) :: {condition, consequence});
-        let alternative = optional_field!((node) :: alternative);
-
-        if let Some(alternative) = alternative {
+    fn if_statement(&mut self, node: &IfStatement, env: &Environment<'src, '_>) {
+        if let Some(alternative) = &node.alternative {
             // Init flag to 1
             self.push('+');
             self.push('>');
             self.stack_pointer += 1;
 
             // Examine condition
-            self.parenthesized_expression(condition, env);
+            self.parenthesized_expression(&node.condition, env);
             self.push('<');
             self.stack_pointer -= 1;
 
@@ -498,7 +573,7 @@ impl<'src> Codegen<'src> {
                 self.push_str("<->");
                 self.push_str("[-]");
 
-                self.statement(consequence, env);
+                self.statement(&node.consequence, env);
             });
 
             // Cond space guaranteed to be zero, moving to examine flag
@@ -509,11 +584,11 @@ impl<'src> Codegen<'src> {
             bf_loop!(self, {
                 self.push('-');
 
-                self.statement(alternative.named_child(0).unwrap(), env);
+                self.statement(&alternative.child, env);
             });
         } else {
             // Examine condition
-            self.parenthesized_expression(condition, env);
+            self.parenthesized_expression(&node.condition, env);
             self.push('<');
             self.stack_pointer -= 1;
 
@@ -521,19 +596,15 @@ impl<'src> Codegen<'src> {
             bf_loop!(self, {
                 self.push_str("[-]");
 
-                self.statement(consequence, env);
+                self.statement(&node.consequence, env);
             });
         }
     }
 
     /// Generates code for a `while` statement.
-    fn while_statement(&mut self, node: Node, env: &Environment<'src, '_>) {
-        debug_assert_eq!(node.kind(), "while_statement");
-
-        let (body, condition) = field!((node) :: {body, condition});
-
+    fn while_statement(&mut self, node: &WhileStatement, env: &Environment<'src, '_>) {
         // Examine condition
-        self.parenthesized_expression(condition, env);
+        self.parenthesized_expression(&node.condition, env);
         self.push('<');
         self.stack_pointer -= 1;
 
@@ -541,142 +612,200 @@ impl<'src> Codegen<'src> {
         bf_loop!(self, {
             self.push_str("[-]");
 
-            self.statement(body, env);
+            self.statement(&node.body, env);
 
             // Examine condition again so we can run it back
-            self.parenthesized_expression(condition, env);
+            self.parenthesized_expression(&node.condition, env);
             self.push('<');
             self.stack_pointer -= 1;
         });
     }
 
     /// Evaluates any expression and pushes its value onto stack.
-    fn expression(&mut self, node: Node, env: &Environment<'src, '_>) {
-        debug_assert!(is_expression(node.kind()));
+    fn expression(&mut self, node: &Expression, env: &Environment<'src, '_>) {
+        match *node {
+            Expression::AssignmentExpression(ref ae) => self.assignment_expression(ae, env),
+            Expression::BinaryExpression(ref be) => self.binary_expression(&be, env),
+            Expression::CallExpression(ref ce) => {
+                self.argument_list(&ce.arguments, env);
 
-        match node.kind() {
-            "alignof_expression" => unimplemented!(),
-            "assignment_expression" => self.assignment_expression(node, &env),
-            "binary_expression" => self.binary_expression(node, &env),
-            // TODO: this sucks and doesnt clear stack but ig it doesnt matter
-            // gonna overhaul when user functions implemented.
-            "call_expression" => {
-                let (function, arguments) = field!((node) :: {function, arguments});
-
-                self.argument_list(arguments, env);
-
-                // TODO: Functions can be any expression
-                match self.src(function) {
-                    "putchar" => self.push_str("<.[-]"),
-                    _ => panic!(),
+                match *ce.function {
+                    Expression::Identifier(ref id) => match id.src.as_str() {
+                        "putchar" => {
+                            self.push_str("<.[-]");
+                            self.stack_pointer -= 1;
+                        }
+                        _ => unimplemented!(),
+                    },
+                    Expression::AssignmentExpression(_)
+                    | Expression::BinaryExpression(_)
+                    | Expression::CallExpression(_)
+                    | Expression::CharLiteral(_)
+                    | Expression::False
+                    | Expression::NumberLiteral(_)
+                    | Expression::UpdateExpression(_) 
+                    | Expression::True => unimplemented!(),
                 }
-
-                self.stack_pointer -= arguments.named_child_count();
             }
-            "cast_expression" => unimplemented!(),
-            "char_literal" => self.char_literal_expression(node),
-            "compound_literal_expression" => todo!(),
-            "concatenated_string" => unimplemented!(),
-            "conditional_expression" => todo!(),
-            "extension_expression" => unimplemented!(),
-            "false" => {
-                // zero!
-
+            Expression::CharLiteral(ref cl) => self.char_literal_expression(cl),
+            Expression::False => {
                 self.push('>');
                 self.stack_pointer += 1;
             }
-            "field_expression" => todo!(),
-            "generic_expression" => unimplemented!(),
-            "gnu_asm_expression" => unimplemented!(),
-            "identifier" => self.identifier(node, &env),
-            "null" => todo!(),
-            "number_literal" => {
-                let num = self.src(node).parse::<usize>().unwrap();
+            Expression::Identifier(ref id) => self.identifier(id, env),
+            Expression::NumberLiteral(ref nl) => {
+                let num = nl.src.parse::<usize>().unwrap();
 
                 self.push_n(num, '+');
                 self.push('>');
                 self.stack_pointer += 1;
             }
-            "offsetof_expression" => unimplemented!(),
-            "parenthesized_expression" => self.parenthesized_expression(node, env),
-            "pointer_expression" => unimplemented!(),
-            "sizeof_expression" => todo!(),
-            "string_literal" => todo!(),
-            "subscript_expression" => todo!(),
-            "true" => {
-                self.push('+');
-                self.push('>');
+            Expression::True => {
+                self.push_str("+>");
                 self.stack_pointer += 1;
             }
-            "unary_expression" => todo!(),
-            "update_expression" => {
-                let (argument, operator) = field!((node) :: {argument, operator});
+            Expression::UpdateExpression(ref ue) => {
+                let dist = match *ue.argument {
+                    Expression::Identifier(ref id) => {
+                        let var_location = env.lookup(&id.src).expect("Variable should have been defined");
 
-                debug_assert_eq!(
-                    argument.kind(),
-                    "identifier",
-                    "update expression lvalue must be an identifier"
-                );
+                        self.stack_pointer - var_location
+                    }
+                    _ => unimplemented!(),
+                };
 
-                let var_location = env.lookup(self.src(argument)).expect("Variable not found");
-                let var_offset = self.stack_pointer - var_location;
-
-                self.push_n(var_offset, '<');
-
-                self.push(match self.src(operator) {
-                    "++" => '+',
-                    "--" => '-',
-                    _ => unreachable!(),
+                self.push_n(dist, '<');
+                self.push(match *ue.operator {
+                    UpdateOperator::PlusPlus => '+',
+                    UpdateOperator::MinusMinus => '-',
                 });
+                self.push_n(dist, '>');
 
-                self.push_n(var_offset, '>');
             }
-            _ => unreachable!(),
         }
+        // match node.kind() {
+        //     "alignof_expression" => unimplemented!(),
+        //     "assignment_expression" => self.assignment_expression(node, &env),
+        //     "binary_expression" => self.binary_expression(node, &env),
+        //     // TODO: this sucks and doesnt clear stack but ig it doesnt matter
+        //     // gonna overhaul when user functions implemented.
+        //     "call_expression" => {
+        //         let (function, arguments) = field!((node) :: {function, arguments});
+
+        //         self.argument_list(arguments, env);
+
+        //         // TODO: Functions can be any expression
+        //         match self.src(function) {
+        //             "putchar" => self.push_str("<.[-]"),
+        //             _ => panic!(),
+        //         }
+
+        //         self.stack_pointer -= arguments.named_child_count();
+        //     }
+        //     "cast_expression" => unimplemented!(),
+        //     "char_literal" => self.char_literal_expression(node),
+        //     "compound_literal_expression" => todo!(),
+        //     "concatenated_string" => unimplemented!(),
+        //     "conditional_expression" => todo!(),
+        //     "extension_expression" => unimplemented!(),
+        //     "false" => {
+        //         // zero!
+
+        //         self.push('>');
+        //         self.stack_pointer += 1;
+        //     }
+        //     "field_expression" => todo!(),
+        //     "generic_expression" => unimplemented!(),
+        //     "gnu_asm_expression" => unimplemented!(),
+        //     "identifier" => self.identifier(node, &env),
+        //     "null" => todo!(),
+        //     "number_literal" => {
+        //         let num = self.src(node).parse::<usize>().unwrap();
+
+        //         self.push_n(num, '+');
+        //         self.push('>');
+        //         self.stack_pointer += 1;
+        //     }
+        //     "offsetof_expression" => unimplemented!(),
+        //     "parenthesized_expression" => self.parenthesized_expression(node, env),
+        //     "pointer_expression" => unimplemented!(),
+        //     "sizeof_expression" => todo!(),
+        //     "string_literal" => todo!(),
+        //     "subscript_expression" => todo!(),
+        //     "true" => {
+        //         self.push('+');
+        //         self.push('>');
+        //         self.stack_pointer += 1;
+        //     }
+        //     "unary_expression" => todo!(),
+        //     "update_expression" => {
+        //         let (argument, operator) = field!((node) :: {argument, operator});
+
+        //         debug_assert_eq!(
+        //             argument.kind(),
+        //             "identifier",
+        //             "update expression lvalue must be an identifier"
+        //         );
+
+        //         let var_location = env.lookup(self.src(argument)).expect("Variable not found");
+        //         let var_offset = self.stack_pointer - var_location;
+
+        //         self.push_n(var_offset, '<');
+
+        //         self.push(match self.src(operator) {
+        //             "++" => '+',
+        //             "--" => '-',
+        //             _ => unreachable!(),
+        //         });
+
+        //         self.push_n(var_offset, '>');
+        //     }
+        //     _ => unreachable!(),
+        // }
     }
 
     /// Evaluates an assignment expression, modifying lvalue
     /// and pushing rvalue onto stack.
-    fn assignment_expression(&mut self, node: Node, env: &Environment<'src, '_>) {
-        debug_assert_eq!(node.kind(), "assignment_expression");
+    fn assignment_expression(
+        &mut self,
+        node: &AssignmentExpression,
+        env: &Environment<'src, '_>,
+    ) {
+        // currently only supporting `id = expr` (no subscript etc)
 
-        let (left, operator, right) = field!((node) :: {left, operator, right});
+        // space for stack value
+        self.push('>');
+        self.stack_pointer += 1;
 
-        match left.kind() {
-            "call_expression" => unimplemented!(),
-            "field_expression" => todo!(),
-            "identifier" => {}
-            "parenthesized_expression" => todo!(),
-            "pointer_expression" => unimplemented!(),
-            "subscript_expression" => todo!(),
-            _ => unreachable!(),
+        // evaluate and examine
+        match *node.operator {
+            AssignmentOperator::AssignEquals => {
+                self.expression(&node.right, env);
+                self.push('<');
+                self.stack_pointer -= 1;
+            }
+            AssignmentOperator::PlusEquals => {
+                // push onto stack
+                self.identifier(&node.left, env);
+                self.expression(&node.right, env);
+
+                // add & examine
+                self.push_str("<[-<+>]<");
+                self.stack_pointer -= 2;
+            }
+            AssignmentOperator::MinusEquals => {
+                // push onto stack
+                self.identifier(&node.left, env);
+                self.expression(&node.right, env);
+
+                // sub & examine
+                self.push_str("<[-<->]<");
+                self.stack_pointer -= 2;
+            }
         }
-
-        match self.src(operator) {
-            "%=" => todo!(),
-            "&=" => unimplemented!(),
-            "*=" => todo!(),
-            "+=" => todo!(),
-            "-=" => todo!(),
-            "/=" => todo!(),
-            "<<=" => unimplemented!(),
-            "=" => {}
-            ">>=" => unimplemented!(),
-            "^=" => unimplemented!(),
-            "|=" => unimplemented!(),
-            _ => unreachable!(),
-        }
-
-        // push twice; once for copying in, other for leaving rvalue on stack
-        self.expression(right, env);
-        self.expression(right, env);
-
-        // Examine second one
-        self.push('<');
-        self.stack_pointer -= 1;
 
         let var_location = env
-            .lookup(self.src(left))
+            .lookup(node.left.src.as_str())
             .expect("variable should have been declared prior to assignment");
         let var_offset = self.stack_pointer - var_location;
 
@@ -691,55 +820,20 @@ impl<'src> Codegen<'src> {
             self.push_n(var_offset, '>');
             self.push('-');
         });
-
+        
         // Now stack pointer is after first `right`, where it should be!
     }
 
     /// Evaluates and pushes onto stack a binary expression's
     /// value.
-    fn binary_expression(&mut self, node: Node, env: &Environment<'src, '_>) {
+    fn binary_expression(&mut self, node: &BinaryExpression, env: &Environment<'src, '_>) {
         // this is a pretty big function, not sure how to shrink it
+        let push_left = |cg: &mut Self| cg.expression(&node.left, env);
 
-        debug_assert_eq!(node.kind(), "binary_expression");
+        let push_right = |cg: &mut Self| cg.expression(&node.right, env);
 
-        let (left, operator, right) = field!((node) :: {left, operator, right});
-
-        let push_left = |s: &mut Codegen<'src>| match left.kind() {
-            kind if is_expression(kind) => s.expression(left, env),
-            "preproc_defined" => unimplemented!(),
-            _ => unreachable!(),
-        };
-
-        let push_right = |s: &mut Codegen<'src>| match right.kind() {
-            kind if is_expression(kind) => s.expression(right, env),
-            "preproc_defined" => unimplemented!(),
-            _ => unreachable!(),
-        };
-
-        match self.src(operator) {
-            "+" => {
-                push_left(self);
-                push_right(self);
-                self.push_str("<[<+>-]");
-
-                self.stack_pointer -= 1;
-            }
-            "-" => {
-                push_left(self);
-                push_right(self);
-                self.push_str("<[<->-]");
-
-                self.stack_pointer -= 1;
-            }
-            "*" => todo!(),
-            "/" => todo!(),
-            "%" => todo!(),
-            "<<" => unimplemented!(),
-            ">>" => unimplemented!(),
-            "&" => unimplemented!(),
-            "|" => unimplemented!(),
-            "^" => unimplemented!(),
-            "==" => {
+        match *node.operator {
+            BinaryOperator::EqualsCheck => {
                 // set flag to 1
                 self.push_str("+>");
                 self.stack_pointer += 1;
@@ -765,8 +859,15 @@ impl<'src> Codegen<'src> {
 
                 self.stack_pointer -= 1;
             }
-            "!=" => {
-                // implicitly set flag = 0
+            BinaryOperator::Minus => {
+                push_left(self);
+                push_right(self);
+                self.push_str("<[<->-]");
+
+                self.stack_pointer -= 1;
+            }
+            BinaryOperator::NotEqualsCheck => {
+                // set flag = 0
                 self.push_str(">");
                 self.stack_pointer += 1;
 
@@ -791,29 +892,113 @@ impl<'src> Codegen<'src> {
 
                 self.stack_pointer -= 1;
             }
-            "<" => todo!(),
-            "<=" => todo!(),
-            ">" => todo!(),
-            ">=" => todo!(),
-            "&&" => todo!(),
-            "||" => todo!(),
-            _ => unreachable!(),
+            BinaryOperator::Plus => {
+                push_left(self);
+                push_right(self);
+                self.push_str("<[<+>-]");
+
+                self.stack_pointer -= 1;
+            }
         }
+
+        // match self.src(operator) {
+        //     "+" => {
+        //         push_left(self);
+        //         push_right(self);
+        //         self.push_str("<[<+>-]");
+
+        //         self.stack_pointer -= 1;
+        //     }
+        //     "-" => {
+        //         push_left(self);
+        //         push_right(self);
+        //         self.push_str("<[<->-]");
+
+        //         self.stack_pointer -= 1;
+        //     }
+        //     "*" => todo!(),
+        //     "/" => todo!(),
+        //     "%" => todo!(),
+        //     "<<" => unimplemented!(),
+        //     ">>" => unimplemented!(),
+        //     "&" => unimplemented!(),
+        //     "|" => unimplemented!(),
+        //     "^" => unimplemented!(),
+        //     "==" => {
+        //         // set flag to 1
+        //         self.push_str("+>");
+        //         self.stack_pointer += 1;
+
+        //         push_left(self);
+        //         push_right(self);
+
+        //         // Subtract a - b
+        //         {
+        //             self.push_str("<[<->-]");
+
+        //             self.stack_pointer -= 1;
+        //         }
+
+        //         self.push('<');
+
+        //         // if difference != 0 (they are NOT equal),
+        //         // clear diff and set flag to 0
+        //         bf_loop!(self, {
+        //             self.push_str("[-]");
+        //             self.push_str("<->");
+        //         });
+
+        //         self.stack_pointer -= 1;
+        //     }
+        //     "!=" => {
+        //         // implicitly set flag = 0
+        //         self.push_str(">");
+        //         self.stack_pointer += 1;
+
+        //         push_left(self);
+        //         push_right(self);
+
+        //         // Subtract a - b
+        //         {
+        //             self.push_str("<[<->-]");
+
+        //             self.stack_pointer -= 1;
+        //         }
+
+        //         self.push('<');
+
+        //         // if difference != 0 (they ARE unequal)
+        //         // clear difference and set flag to one
+        //         bf_loop!(self, {
+        //             self.push_str("[-]");
+        //             self.push_str("<+>");
+        //         });
+
+        //         self.stack_pointer -= 1;
+        //     }
+        //     "<" => todo!(),
+        //     "<=" => todo!(),
+        //     ">" => todo!(),
+        //     ">=" => todo!(),
+        //     "&&" => todo!(),
+        //     "||" => todo!(),
+        //     _ => unreachable!(),
+        // }
     }
 
     /// Evaluates and pushes onto stack a character's
     /// corresponding value.
-    fn char_literal_expression(&mut self, node: Node) {
+    fn char_literal_expression(&mut self, node: &CharLiteral) {
         assert!(
-            node.named_child_count() == 1,
+            node.children.len() == 1,
             "expected one character in char literal"
         );
 
-        let child = node.named_child(0).unwrap();
+        let child = node.children.first().unwrap();
 
-        let char = match child.kind() {
-            "character" => self.src(child).chars().next().unwrap(),
-            "escape_sequence" => match self.src(child) {
+        let c = match *child {
+            CharLiteralChildren::Character(ref c) => c.src.chars().next().unwrap(),
+            CharLiteralChildren::EscapeSequence(ref es) => match es.src.as_str() {
                 r"\'" => '\'',
                 r#"\""# => '\"',
                 r"\?" => '?',
@@ -831,19 +1016,39 @@ impl<'src> Codegen<'src> {
                 esc if esc.starts_with('\\') => unimplemented!(),
                 _ => unreachable!(),
             },
-            _ => unreachable!(),
         };
 
-        self.push_n(char as usize, '+');
+        // let char = match child.kind() {
+        //     "character" => self.src(child).chars().next().unwrap(),
+        //     "escape_sequence" => match self.src(child) {
+        //         r"\'" => '\'',
+        //         r#"\""# => '\"',
+        //         r"\?" => '?',
+        //         r"\\" => '\\',
+        //         r"\a" => '\x07',
+        //         r"\b" => '\x08',
+        //         r"\f" => '\x0c',
+        //         r"\n" => '\n',
+        //         r"\r" => '\r',
+        //         r"\t" => '\t',
+        //         r"\v" => '\x0b',
+        //         esc if esc.starts_with(r"\x") => unimplemented!(),
+        //         esc if esc.starts_with(r"\u") => unimplemented!(),
+        //         esc if esc.starts_with(r"\U") => unimplemented!(),
+        //         esc if esc.starts_with('\\') => unimplemented!(),
+        //         _ => unreachable!(),
+        //     },
+        //     _ => unreachable!(),
+        // };
+
+        self.push_n(c as usize, '+');
         self.push('>');
         self.stack_pointer += 1;
     }
 
     /// Looks up variable in `env` and pushes its value to stack.
-    fn identifier(&mut self, node: Node, env: &Environment<'src, '_>) {
-        let var_location = env
-            .lookup(self.src(node))
-            .expect("variable should've been found");
+    fn identifier(&mut self, node: &Identifier, env: &Environment<'src, '_>) {
+        let var_location = env.lookup(node.src.as_str()).expect("variable should've been found");
         let var_offset = self.stack_pointer - var_location;
 
         // Copy to two locations
@@ -874,32 +1079,33 @@ impl<'src> Codegen<'src> {
     /// this is just syntactically required or to indicate
     /// operation order in expressions) and pushes its
     /// value onto stack.
-    fn parenthesized_expression(&mut self, node: Node, env: &Environment<'src, '_>) {
-        debug_assert_eq!(node.kind(), "parenthesized_expression");
-
-        let child = node.named_child(0).unwrap();
-
-        match child.kind() {
-            "comma_expression" => todo!(),
-            "compound_statement" => unimplemented!(),
-            kind if is_expression(kind) => self.expression(child, env),
-            "preproc_defined" => unimplemented!(),
-            _ => unreachable!(),
-        }
+    fn parenthesized_expression(
+        &mut self,
+        node: &ParenthesizedExpression,
+        env: &Environment<'src, '_>,
+    ) {
+        self.expression(&node.child, env);
+        // match child.kind() {
+        //     "comma_expression" => todo!(),
+        //     "compound_statement" => unimplemented!(),
+        //     kind if is_expression(kind) => self.expression(child, env),
+        //     "preproc_defined" => unimplemented!(),
+        //     _ => unreachable!(),
+        // }
     }
 
     /// Pushes the value of each of the passed arguments
     /// onto stack sequentially.
-    fn argument_list(&mut self, node: Node, env: &Environment<'src, '_>) {
-        debug_assert_eq!(node.kind(), "argument_list");
+    fn argument_list(&mut self, node: &ArgumentList, env: &Environment<'src, '_>) {
+        for argument in &node.children {
+            self.expression(argument, env);
 
-        for argument in node.named_children(&mut node.walk()) {
-            match argument.kind() {
-                "compound_statement" => unimplemented!(),
-                kind if is_expression(kind) => self.expression(argument, env),
-                "preproc_defined" => unimplemented!(),
-                _ => unreachable!(),
-            }
+            // match argument.kind() {
+            //     "compound_statement" => unimplemented!(),
+            //     kind if is_expression(kind) => self.expression(argument, env),
+            //     "preproc_defined" => unimplemented!(),
+            //     _ => unreachable!(),
+            // }
         }
     }
 }
