@@ -2,8 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::treesitter_wrapper as ts;
-use ts::*;
+use crate::treesitter_wrapper::*;
 
 use crate::macros::bf_loop;
 
@@ -156,7 +155,7 @@ impl<'src> Codegen {
                         && func_name.src == "main"
                     {
                         match *child.r#type {
-                            TypeSpecifier::PrimitiveType(ref t) if t.src.as_str() == "int" => {},
+                            TypeSpecifier::PrimitiveType(ref t) if t.src.as_str() == "int" => {}
                             _ => panic!("main function does not have `int` return type"),
                         }
 
@@ -452,7 +451,7 @@ impl<'src> Codegen {
                     | Expression::CharLiteral(_)
                     | Expression::False
                     | Expression::NumberLiteral(_)
-                    | Expression::UpdateExpression(_) 
+                    | Expression::UpdateExpression(_)
                     | Expression::True => unimplemented!(),
                 }
             }
@@ -476,7 +475,9 @@ impl<'src> Codegen {
             Expression::UpdateExpression(ref ue) => {
                 let dist = match *ue.argument {
                     Expression::Identifier(ref id) => {
-                        let var_location = env.lookup(&id.src).expect("Variable should have been defined");
+                        let var_location = env
+                            .lookup(&id.src)
+                            .expect("Variable should have been defined");
 
                         self.stack_pointer - var_location
                     }
@@ -489,18 +490,13 @@ impl<'src> Codegen {
                     UpdateOperator::MinusMinus => '-',
                 });
                 self.push_n(dist, '>');
-
             }
         }
     }
 
     /// Evaluates an assignment expression, modifying lvalue
     /// and pushing rvalue onto stack.
-    fn assignment_expression(
-        &mut self,
-        node: &AssignmentExpression,
-        env: &Environment<'src, '_>,
-    ) {
+    fn assignment_expression(&mut self, node: &AssignmentExpression, env: &Environment<'src, '_>) {
         // currently only supporting `id = expr` (no subscript etc)
 
         // space for stack value
@@ -550,7 +546,7 @@ impl<'src> Codegen {
             self.push_n(var_offset, '>');
             self.push('-');
         });
-        
+
         // Now stack pointer is after first `right`, where it should be!
     }
 
@@ -671,7 +667,9 @@ impl<'src> Codegen {
 
     /// Looks up variable in `env` and pushes its value to stack.
     fn identifier(&mut self, node: &Identifier, env: &Environment<'src, '_>) {
-        let var_location = env.lookup(node.src.as_str()).expect("variable should've been found");
+        let var_location = env
+            .lookup(node.src.as_str())
+            .expect("variable should've been found");
         let var_offset = self.stack_pointer - var_location;
 
         // Copy to two locations
