@@ -47,62 +47,6 @@ impl<'src> Environment<'src, '_> {
     }
 }
 
-// /// Returns whether a `Node::kind()` is a statement
-// fn is_statement(kind: &str) -> bool {
-//     matches!(
-//         kind,
-//         "attributed_statement"
-//             | "break_statement"
-//             | "case_statement"
-//             | "compound_statement"
-//             | "continue_statement"
-//             | "do_statement"
-//             | "expression_statement"
-//             | "for_statement"
-//             | "goto_statement"
-//             | "if_statement"
-//             | "labeled_statement"
-//             | "return_statement"
-//             | "seh_leave_statement"
-//             | "seh_try_statement"
-//             | "switch_statement"
-//             | "while_statement"
-//     )
-// }
-
-// /// Returns whether a `Node::kind()` is an expression.
-// fn is_expression(kind: &str) -> bool {
-//     matches!(
-//         kind,
-//         "alignof_expression"
-//             | "assignment_expression"
-//             | "binary_expression"
-//             | "call_expression"
-//             | "cast_expression"
-//             | "char_literal"
-//             | "compound_literal_expression"
-//             | "concatenated_string"
-//             | "conditional_expression"
-//             | "extension_expression"
-//             | "false"
-//             | "field_expression"
-//             | "generic_expression"
-//             | "gnu_asm_expression"
-//             | "identifier"
-//             | "null"
-//             | "number_literal"
-//             | "offsetof_expression"
-//             | "parenthesized_expression"
-//             | "pointer_expression"
-//             | "sizeof_expression"
-//             | "string_literal"
-//             | "subscript_expression"
-//             | "true"
-//             | "unary_expression"
-//             | "update_expression"
-//     )
-// }
-
 impl<'src> Codegen {
     /// Initializes a `Codegen` object given C source code.
     pub fn new(src: &str) -> Self {
@@ -112,13 +56,6 @@ impl<'src> Codegen {
             output: String::new(),
         }
     }
-
-    // /// Returns a string slice to the exact source code
-    // /// corresponding to a `Node`.
-    // fn src(&self, node: TSNode) -> &'src str {
-    //     node.utf8_text(self.src.as_bytes())
-    //         .expect("source code should be valid UTF-8")
-    // }
 
     /// Pushes `c` to the generated BF code.
     fn push(&mut self, c: char) {
@@ -177,28 +114,6 @@ impl<'src> Codegen {
                 _ => unimplemented!(),
             },
         };
-
-        // let name = match declarator.kind() {
-        //     "array_declarator" => unimplemented!(),
-        //     "attributed_declarator" => unimplemented!(),
-        //     "function_declarator" => unimplemented!(),
-        //     "gnu_asm_expression" => unimplemented!(),
-        //     "identifier" => self.src(declarator),
-        //     "init_declarator" => {
-        //         let (inner_declarator, _) = field!((declarator) :: {declarator, value});
-        //         assert_eq!(
-        //             inner_declarator.kind(),
-        //             "identifier",
-        //             "Only supporting basic declarations at present"
-        //         );
-
-        //         self.src(inner_declarator)
-        //     }
-        //     "ms_call_modifier" => unimplemented!(),
-        //     "parenthesized_declarator" => unimplemented!(),
-        //     "pointer_declarator" => unimplemented!(),
-        //     _ => unreachable!(),
-        // };
 
         let name = match *declaration.declarator {
             Declarator::Identifier(ref id) => id.src.as_str(),
@@ -267,46 +182,6 @@ impl<'src> Codegen {
                 Declarator::InitDeclarator(_) => unimplemented!(),
             }
         }
-
-        // for node in root.named_children(&mut root.walk()) {
-        //     match node.kind() {
-        //         "attributed_statement" => unimplemented!(),
-        //         "break_statement" => unimplemented!(),
-        //         "case_statement" => unimplemented!(),
-        //         "compound_statement" => unimplemented!(),
-        //         "continue_statement" => unimplemented!(),
-        //         "declaration" => todo!(),
-        //         "do_statement" => unimplemented!(),
-        //         "expression_statement" => unimplemented!(),
-        //         "for_statement" => unimplemented!(),
-        //         "function_definition" => {
-        //             let function_name = field!((node) ::  declarator :: declarator);
-
-        //             if self.src(function_name) == "main" {
-        //                 self.main(node);
-        //             }
-        //         }
-        //         "goto_statement" => unimplemented!(),
-        //         "if_statement" => unimplemented!(),
-        //         "labeled_statement" => unimplemented!(),
-        //         "linkage_specification" => unimplemented!(),
-        //         "preproc_call" => unimplemented!(),
-        //         "preproc_def" => todo!(),
-        //         "preproc_function_def" => todo!(),
-        //         "preproc_if" => todo!(),
-        //         "preproc_ifdef" => todo!(),
-        //         "preproc_include" => todo!(),
-        //         "return_statement" => unimplemented!(),
-        //         "switch_statement" => unimplemented!(),
-        //         "type_definition" => todo!(),
-        //         // haha this is actually several kinds!
-        //         // if only the tree sitter api wasnt
-        //         // so incredibly sloppy...
-        //         "type_specifier" => todo!(),
-        //         "while_statement" => unimplemented!(),
-        //         _ => unreachable!(),
-        //     }
-        // }
     }
 
     /// Generate code for the `main` function, which is
@@ -336,23 +211,6 @@ impl<'src> Codegen {
             self.add_variable(&mut env, declaration);
         }
 
-        // for node in node.named_children(&mut node.walk()) {
-        //     match node.kind() {
-        //         "declaration" => self.declaration(node, &env),
-        //         "function_definition" => todo!(),
-        //         "linkage_specification" => unimplemented!(),
-        //         "preproc_call" => unimplemented!(),
-        //         "preproc_def" => unimplemented!(),
-        //         "preproc_function_def" => unimplemented!(),
-        //         "preproc_if" => unimplemented!(),
-        //         "preproc_ifdef" => unimplemented!(),
-        //         "preproc_include" => unimplemented!(),
-        //         "type_definition" => todo!(),
-        //         "type_specifier" => todo!(),
-        //         kind if is_statement(kind) => self.statement(node, &env),
-        //         _ => unreachable!(),
-        //     }
-        // }
         for child in &node.children {
             match child {
                 BlockChildren::Declaration(d) => self.declaration(d, &env),
@@ -435,44 +293,6 @@ impl<'src> Codegen {
             Statement::IfStatement(ref is) => self.if_statement(is, env),
             Statement::WhileStatement(ref ws) => self.while_statement(ws, env),
         }
-
-        // match node.kind() {
-        //     "attributed_statement" => unimplemented!(),
-        //     "break_statement" => unimplemented!(),
-        //     "case_statement" => unimplemented!(),
-        //     "compound_statement" => self.compound_statement(node, Some(env)),
-        //     "continue_statement" => unimplemented!(),
-        //     "do_statement" => unimplemented!(),
-        //     "expression_statement" => {
-        //         // evaluate, then clear
-
-        //         let child = node.child(0).unwrap();
-
-        //         let old_stack_top = self.stack_pointer;
-
-        //         match child.kind() {
-        //             "comma_expression" => todo!(),
-        //             kind if is_expression(kind) => self.expression(child, env),
-        //             _ => unreachable!(),
-        //         }
-
-        //         let clear_zone_size = self.stack_pointer - old_stack_top;
-        //         for _ in 0..clear_zone_size {
-        //             self.push_str("<[-]");
-        //             self.stack_pointer -= 1;
-        //         }
-        //     }
-        //     "for_statement" => self.for_statement(node, &env),
-        //     "goto_statement" => unimplemented!(),
-        //     "if_statement" => self.if_statement(node, &env),
-        //     "labeled_statement" => unimplemented!(),
-        //     "return_statement" => todo!(),
-        //     "seh_leave_statement" => unimplemented!(),
-        //     "seh_try_statement" => unimplemented!(),
-        //     "switch_statement" => unimplemented!(),
-        //     "while_statement" => self.while_statement(node, &env),
-        //     _ => unreachable!(),
-        // }
     }
 
     /// Generates code for a `for` statement.
@@ -515,17 +335,6 @@ impl<'src> Codegen {
                 // always true
                 None => cg.push('+'),
             }
-
-            // if let Some(condition) = condition {
-            //     match condition.kind() {
-            //         "comma_expression" => todo!(),
-            //         kind if is_expression(kind) => cg.expression(condition, &outer_env),
-            //         _ => unreachable!(),
-            //     }
-            // }
-
-            // cg.push('<');
-            // cg.stack_pointer -= 1;
         };
 
         examine_condition(self);
@@ -683,85 +492,6 @@ impl<'src> Codegen {
 
             }
         }
-        // match node.kind() {
-        //     "alignof_expression" => unimplemented!(),
-        //     "assignment_expression" => self.assignment_expression(node, &env),
-        //     "binary_expression" => self.binary_expression(node, &env),
-        //     // TODO: this sucks and doesnt clear stack but ig it doesnt matter
-        //     // gonna overhaul when user functions implemented.
-        //     "call_expression" => {
-        //         let (function, arguments) = field!((node) :: {function, arguments});
-
-        //         self.argument_list(arguments, env);
-
-        //         // TODO: Functions can be any expression
-        //         match self.src(function) {
-        //             "putchar" => self.push_str("<.[-]"),
-        //             _ => panic!(),
-        //         }
-
-        //         self.stack_pointer -= arguments.named_child_count();
-        //     }
-        //     "cast_expression" => unimplemented!(),
-        //     "char_literal" => self.char_literal_expression(node),
-        //     "compound_literal_expression" => todo!(),
-        //     "concatenated_string" => unimplemented!(),
-        //     "conditional_expression" => todo!(),
-        //     "extension_expression" => unimplemented!(),
-        //     "false" => {
-        //         // zero!
-
-        //         self.push('>');
-        //         self.stack_pointer += 1;
-        //     }
-        //     "field_expression" => todo!(),
-        //     "generic_expression" => unimplemented!(),
-        //     "gnu_asm_expression" => unimplemented!(),
-        //     "identifier" => self.identifier(node, &env),
-        //     "null" => todo!(),
-        //     "number_literal" => {
-        //         let num = self.src(node).parse::<usize>().unwrap();
-
-        //         self.push_n(num, '+');
-        //         self.push('>');
-        //         self.stack_pointer += 1;
-        //     }
-        //     "offsetof_expression" => unimplemented!(),
-        //     "parenthesized_expression" => self.parenthesized_expression(node, env),
-        //     "pointer_expression" => unimplemented!(),
-        //     "sizeof_expression" => todo!(),
-        //     "string_literal" => todo!(),
-        //     "subscript_expression" => todo!(),
-        //     "true" => {
-        //         self.push('+');
-        //         self.push('>');
-        //         self.stack_pointer += 1;
-        //     }
-        //     "unary_expression" => todo!(),
-        //     "update_expression" => {
-        //         let (argument, operator) = field!((node) :: {argument, operator});
-
-        //         debug_assert_eq!(
-        //             argument.kind(),
-        //             "identifier",
-        //             "update expression lvalue must be an identifier"
-        //         );
-
-        //         let var_location = env.lookup(self.src(argument)).expect("Variable not found");
-        //         let var_offset = self.stack_pointer - var_location;
-
-        //         self.push_n(var_offset, '<');
-
-        //         self.push(match self.src(operator) {
-        //             "++" => '+',
-        //             "--" => '-',
-        //             _ => unreachable!(),
-        //         });
-
-        //         self.push_n(var_offset, '>');
-        //     }
-        //     _ => unreachable!(),
-        // }
     }
 
     /// Evaluates an assignment expression, modifying lvalue
@@ -900,90 +630,6 @@ impl<'src> Codegen {
                 self.stack_pointer -= 1;
             }
         }
-
-        // match self.src(operator) {
-        //     "+" => {
-        //         push_left(self);
-        //         push_right(self);
-        //         self.push_str("<[<+>-]");
-
-        //         self.stack_pointer -= 1;
-        //     }
-        //     "-" => {
-        //         push_left(self);
-        //         push_right(self);
-        //         self.push_str("<[<->-]");
-
-        //         self.stack_pointer -= 1;
-        //     }
-        //     "*" => todo!(),
-        //     "/" => todo!(),
-        //     "%" => todo!(),
-        //     "<<" => unimplemented!(),
-        //     ">>" => unimplemented!(),
-        //     "&" => unimplemented!(),
-        //     "|" => unimplemented!(),
-        //     "^" => unimplemented!(),
-        //     "==" => {
-        //         // set flag to 1
-        //         self.push_str("+>");
-        //         self.stack_pointer += 1;
-
-        //         push_left(self);
-        //         push_right(self);
-
-        //         // Subtract a - b
-        //         {
-        //             self.push_str("<[<->-]");
-
-        //             self.stack_pointer -= 1;
-        //         }
-
-        //         self.push('<');
-
-        //         // if difference != 0 (they are NOT equal),
-        //         // clear diff and set flag to 0
-        //         bf_loop!(self, {
-        //             self.push_str("[-]");
-        //             self.push_str("<->");
-        //         });
-
-        //         self.stack_pointer -= 1;
-        //     }
-        //     "!=" => {
-        //         // implicitly set flag = 0
-        //         self.push_str(">");
-        //         self.stack_pointer += 1;
-
-        //         push_left(self);
-        //         push_right(self);
-
-        //         // Subtract a - b
-        //         {
-        //             self.push_str("<[<->-]");
-
-        //             self.stack_pointer -= 1;
-        //         }
-
-        //         self.push('<');
-
-        //         // if difference != 0 (they ARE unequal)
-        //         // clear difference and set flag to one
-        //         bf_loop!(self, {
-        //             self.push_str("[-]");
-        //             self.push_str("<+>");
-        //         });
-
-        //         self.stack_pointer -= 1;
-        //     }
-        //     "<" => todo!(),
-        //     "<=" => todo!(),
-        //     ">" => todo!(),
-        //     ">=" => todo!(),
-        //     "&&" => todo!(),
-        //     "||" => todo!(),
-        //     _ => unreachable!(),
-        // }
     }
 
     /// Evaluates and pushes onto stack a character's
@@ -1017,29 +663,6 @@ impl<'src> Codegen {
                 _ => unreachable!(),
             },
         };
-
-        // let char = match child.kind() {
-        //     "character" => self.src(child).chars().next().unwrap(),
-        //     "escape_sequence" => match self.src(child) {
-        //         r"\'" => '\'',
-        //         r#"\""# => '\"',
-        //         r"\?" => '?',
-        //         r"\\" => '\\',
-        //         r"\a" => '\x07',
-        //         r"\b" => '\x08',
-        //         r"\f" => '\x0c',
-        //         r"\n" => '\n',
-        //         r"\r" => '\r',
-        //         r"\t" => '\t',
-        //         r"\v" => '\x0b',
-        //         esc if esc.starts_with(r"\x") => unimplemented!(),
-        //         esc if esc.starts_with(r"\u") => unimplemented!(),
-        //         esc if esc.starts_with(r"\U") => unimplemented!(),
-        //         esc if esc.starts_with('\\') => unimplemented!(),
-        //         _ => unreachable!(),
-        //     },
-        //     _ => unreachable!(),
-        // };
 
         self.push_n(c as usize, '+');
         self.push('>');
@@ -1085,13 +708,6 @@ impl<'src> Codegen {
         env: &Environment<'src, '_>,
     ) {
         self.expression(&node.child, env);
-        // match child.kind() {
-        //     "comma_expression" => todo!(),
-        //     "compound_statement" => unimplemented!(),
-        //     kind if is_expression(kind) => self.expression(child, env),
-        //     "preproc_defined" => unimplemented!(),
-        //     _ => unreachable!(),
-        // }
     }
 
     /// Pushes the value of each of the passed arguments
@@ -1099,13 +715,6 @@ impl<'src> Codegen {
     fn argument_list(&mut self, node: &ArgumentList, env: &Environment<'src, '_>) {
         for argument in &node.children {
             self.expression(argument, env);
-
-            // match argument.kind() {
-            //     "compound_statement" => unimplemented!(),
-            //     kind if is_expression(kind) => self.expression(argument, env),
-            //     "preproc_defined" => unimplemented!(),
-            //     _ => unreachable!(),
-            // }
         }
     }
 }
