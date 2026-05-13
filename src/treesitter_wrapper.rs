@@ -164,8 +164,8 @@ macro_rules! field_stringify {
     };
 }
 
-/// Declares all the different node variants that the language
-/// is meant to support.
+/// Declares all the different node variants that the language is
+/// meant to support.
 /// 
 /// This is one of the two macros used in the tree-sitter wrapper
 /// to convert tree-sitter nodes (`TSNode`s) into the fully-typed
@@ -174,35 +174,78 @@ macro_rules! field_stringify {
 /// 
 /// # Usage
 /// 
-/// At the top of the macro invocation you specify what the overall node type will be. This should be `Node` but for a semblance of hygeine it's allowed to be specified here.
+/// At the top of the macro invocation you specify what the overall
+/// node type will be. This should be `Node` but for a semblance of
+/// hygeine it's allowed to be specified here.
 /// 
-/// You define a node variant with its internal name (conventionally in PascalCase) followed by its tree-sitter string name enclosed in parentheses, then followed by curly braces that contain information about the data associated with the node. The three data "fields" that you may provide are (1) whether - and by what moniker - to associate the node with its source code, (2) the actual fields that the node will have, and (3) the child(ren) that the node will have.
+/// You define a node variant with its internal name (conventionally
+/// in PascalCase) followed by its tree-sitter string name enclosed
+/// in parentheses, then followed by curly braces that contain
+/// information about the data associated with the node. The three
+/// data "fields" that you may provide are (1) whether - and by what
+/// moniker - to associate the node with its source code, (2) the
+/// actual fields that the node will have, and (3) the child(ren)
+/// that the node will have.
 /// 
-/// 1. **Sourcecode endpoint** (`@` prefix): If defined, specifies what identifier the sourcecode associated with the node should be. This is generally `src` but the option is available for something else.
+/// 1. **Sourcecode endpoint** (`@` prefix): If defined, specifies
+/// what identifier the sourcecode associated with the node should
+/// be. This is generally `src` but the option is available for
+/// something else.
 /// 
-/// 2. **Fields**: If defined, constitute the fields - required or optional - that the node possesses. They are specified by `field:` followed by a curly-brace-enclosed comma-separated list of fields, which come in 4 separate forms:
+/// 2. **Fields**: If defined, constitute the fields - required or
+/// optional - that the node possesses. They are specified by `field:`
+/// followed by a curly-brace-enclosed comma-separated list of fields,
+/// which come in 4 separate forms:
 /// 
-///     a. **Single-variant required field** (no prefix): Field where there is exactly one node variant that it may be (e.g., `FunctionDefinition`'s `body` field must be a `CompoundStatement` and nothing else).
+///     a. **Single-variant required field** (no prefix): Field
+///     where there is exactly one node variant that it may be (e.g.,
+///     `FunctionDefinition`'s `body` field must be a `CompoundStatement`
+///     and nothing else).
 /// 
-///     b. **Multi-variant required field** (`*` prefix): Field where there are several variants that would satisfy the field, which must have a corresponding node group (see `declare_node_groups!`) (e.g., `Declaration`'s `declarator` field may be any node variant contained in `Declarator`).
+///     b. **Multi-variant required field** (`*` prefix): Field
+///     where there are several variants that would satisfy the field,
+///     which must have a corresponding node group (see `declare_node_groups!`)
+///     (e.g., `Declaration`'s `declarator` field may be any node variant
+///     contained in `Declarator`).
 /// 
-///     c. **Single-variant optional field** (`?` prefix): Just like its required counterpart, but it may also not be fulfilled at all.
+///     c. **Single-variant optional field** (`?` prefix): Just like
+///     its required counterpart, but it may also not be fulfilled at all.
 /// 
-///     c. **Multi-variant optional field** (`?*` prefix): Just like its required counterpart, but it may also not be fulfilled at all.
+///     c. **Multi-variant optional field** (`?*` prefix): Just like
+///     its required counterpart, but it may also not be fulfilled at all.
 /// 
-/// 3. **Children**: If defined, describe potential children of the node and the variants they may be of. Unlike fields, children do not associate with any name in relation to the parent node. They may also exist in arbitrary numbers in some cases, which is very useful. The child(ren) of a node may be set in one of four configurations (future iterations may have more):
+/// 3. **Children**: If defined, describe potential children of the
+/// node and the variants they may be of. Unlike fields, children do
+/// not associate with any name in relation to the parent node. They
+/// may also exist in arbitrary numbers in some cases, which is very
+/// useful. The child(ren) of a node may be set in one of four
+/// configurations(future iterations may have more):
 /// 
-///     a. **Single-variant multi-count children** (`children:` prefix): Children who have only a single variant that they may be and there may also be several instances of them.
+///     a. **Single-variant multi-count children** (`children:` prefix):
+///     Children who have only a single variant that they may be and there
+///     may also be several instances of them.
 /// 
-///     b. **Multi-variant multi-count children** (`* children:` prefix): Just like their single-variant counterparts but they may be of the form of any member of a specified group (see `declare_node_groups!`).
+///     b. **Multi-variant multi-count children** (`* children:` prefix):
+///     Just like their single-variant counterparts but they may be of the
+///     form of any member of a specified group (see `declare_node_groups!`).
 /// 
-///     c. **Single-variant single-count children** (`child:` prefix): Just like their multi-count counterparts but there may only exist one child of the node.
+///     c. **Single-variant single-count children** (`child:` prefix):
+///     Just like their multi-count counterparts but there may only exist
+///     one child of the node.
 /// 
-///     d. **Multi-variant single-count children** (`* child:` prefix): Just like their single-variant counterparts but the node may be in the form of any member of a specified group (see `declare_node_groups!`).
+///     d. **Multi-variant single-count children** (`* child:` prefix):
+///     Just like their single-variant counterparts but the node may be in
+///     the form of any member of a specified group (see `declare_node_groups!`).
 /// 
-/// After all those nodes have been specified, there exists a space for data-less (unit) node variants. They carry with them no semantic information other than their variant and how tree-sitter expressed them. They are specified like all the nodes prior, but before them comes a `~` and there are no curly braces (e.g., `~ Variant ("variant"),`).
+/// After all those nodes have been specified, there exists a space for
+/// data-less (unit) node variants. They carry with them no semantic
+/// information other than their variant and how tree-sitter expressed
+/// them. They are specified like all the nodes prior, but before them
+/// comes a `~` and there are no curly braces (e.g., `~ Variant ("variant"),`).
 /// 
-/// The top-level type (`Node` in cranium) is an enum over all the supplied variants, and also implements the `from_old` function, which takes in a tree-sitter node (`TSNode`) and outputs the corresponding cranium `Node`.
+/// The top-level type (`Node` in cranium) is an enum over all the supplied
+/// variants, and also implements the `from_old` function, which takes
+/// in a tree-sitter node (`TSNode`) and outputs the corresponding cranium `Node`.
 /// 
 /// ## Example
 /// 
