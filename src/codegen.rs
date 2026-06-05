@@ -23,17 +23,17 @@ pub struct Codegen {
 ///
 /// Allows redefining variables inside inner scopes
 /// while leaving their value in outer scopes unchanged.
-struct Environment<'src, 'a> {
+struct Environment<'a> {
     /// The parent environment.
-    parent: Option<&'a Environment<'src, 'a>>,
+    parent: Option<&'a Environment<'a>>,
     /// Maps variable name to absolute location.
-    variables: HashMap<&'src str, usize>,
+    variables: HashMap<String, usize>,
     /// Absolute location of the beginning of
     /// the local varaibles for the current scope.
     stack_base: usize,
 }
 
-impl<'src> Environment<'src, '_> {
+impl Environment<'_> {
     /// Returns absolute location of `name` variable.
     fn lookup(&self, name: &str) -> Option<usize> {
         match self.variables.get(name) {
@@ -46,7 +46,7 @@ impl<'src> Environment<'src, '_> {
     }
 }
 
-impl<'src> Codegen {
+impl Codegen {
     /// Initializes a `Codegen` object given C source code.
     pub fn new(src: &str) -> Self {
         Self {
@@ -105,7 +105,7 @@ impl<'src> Codegen {
     ///
     /// Assumes the stack pointer is at the appropriate location
     /// to insert the variable.
-    fn add_variable(&mut self, env: &mut Environment<'src, '_>, declaration: &'src Declaration) {
+    fn add_variable(&mut self, env: &mut Environment<'_>, declaration: &Declaration) {
         // Sizes over 1 coming soon...
         let size: usize = match *declaration.r#type {
             TypeSpecifier::PrimitiveType(ref pt) => match pt.src.as_str() {
@@ -115,16 +115,16 @@ impl<'src> Codegen {
         };
 
         let name = match *declaration.declarator {
-            Declarator::Identifier(ref id) => id.src.as_str(),
+            Declarator::Identifier(ref id) => id.src.clone(),
             Declarator::InitDeclarator(ref init) => match *init.declarator {
-                Declarator::Identifier(ref id) => id.src.as_str(),
+                Declarator::Identifier(ref id) => id.src.clone(),
                 Declarator::InitDeclarator(_) => unimplemented!(),
                 Declarator::FunctionDeclarator(_) => unimplemented!(),
             },
             Declarator::FunctionDeclarator(_) => unimplemented!(),
         };
 
-        if env.lookup(name).is_some() {
+        if env.lookup(&name).is_some() {
             panic!("Colliding variable declaration");
         }
 
@@ -192,11 +192,7 @@ impl<'src> Codegen {
     /// This generates code for a scoping block (known internally
     /// as a compound statement). Creates a new environment for
     /// the local variables declared here.
-    fn compound_statement(
-        &mut self,
-        node: &CompoundStatement,
-        parent: Option<&Environment<'src, '_>>,
-    ) {
+    fn compound_statement(&mut self, node: &CompoundStatement, parent: Option<&Environment<'_>>) {
         let mut env = Environment {
             parent,
             variables: HashMap::new(),
@@ -235,7 +231,7 @@ impl<'src> Codegen {
 
     /// Generates code for a variable declaration, assuming
     /// the environment already has an assigned location for it.
-    fn declaration(&mut self, node: &Declaration, env: &Environment<'src, '_>) {
+    fn declaration(&mut self, node: &Declaration, env: &Environment<'_>) {
         // type system here we come
         match *node.r#type {
             TypeSpecifier::PrimitiveType(ref pt) => match pt.src.as_str() {
@@ -272,7 +268,7 @@ impl<'src> Codegen {
     }
 
     /// Generates code for any statement.
-    fn statement(&mut self, node: &Statement, env: &Environment<'src, '_>) {
+    fn statement(&mut self, node: &Statement, env: &Environment<'_>) {
         match *node {
             Statement::CompoundStatement(ref cs) => self.compound_statement(cs, Some(env)),
             Statement::ExpressionStatement(ref es) => {
@@ -295,7 +291,7 @@ impl<'src> Codegen {
     }
 
     /// Generates code for a `for` statement.
-    fn for_statement(&mut self, node: &ForStatement, env: &Environment<'src, '_>) {
+    fn for_statement(&mut self, node: &ForStatement, env: &Environment<'_>) {
         // The environment wherein the for loop expressions/statements exist
         let mut outer_env = Environment {
             parent: Some(env),
@@ -364,7 +360,7 @@ impl<'src> Codegen {
     }
 
     /// Generates code for an `if` statement.
-    fn if_statement(&mut self, node: &IfStatement, env: &Environment<'src, '_>) {
+    fn if_statement(&mut self, node: &IfStatement, env: &Environment<'_>) {
         if let Some(alternative) = &node.alternative {
             // Init flag to 1
             self.push('+');
@@ -410,7 +406,7 @@ impl<'src> Codegen {
     }
 
     /// Generates code for a `while` statement.
-    fn while_statement(&mut self, node: &WhileStatement, env: &Environment<'src, '_>) {
+    fn while_statement(&mut self, node: &WhileStatement, env: &Environment<'_>) {
         // Examine condition
         self.parenthesized_expression(&node.condition, env);
         self.push('<');
@@ -430,7 +426,7 @@ impl<'src> Codegen {
     }
 
     /// Evaluates any expression and pushes its value onto stack.
-    fn expression(&mut self, node: &Expression, env: &Environment<'src, '_>) {
+    fn expression(&mut self, node: &Expression, env: &Environment<'_>) {
         match *node {
             Expression::AssignmentExpression(ref ae) => self.assignment_expression(ae, env),
             Expression::BinaryExpression(ref be) => self.binary_expression(&be, env),
@@ -496,7 +492,7 @@ impl<'src> Codegen {
 
     /// Evaluates an assignment expression, modifying lvalue
     /// and pushing rvalue onto stack.
-    fn assignment_expression(&mut self, node: &AssignmentExpression, env: &Environment<'src, '_>) {
+    fn assignment_expression(&mut self, node: &AssignmentExpression, env: &Environment<'_>) {
         // currently only supporting `id = expr` (no subscript etc)
 
         // space for stack value
@@ -552,7 +548,7 @@ impl<'src> Codegen {
 
     /// Evaluates and pushes onto stack a binary expression's
     /// value.
-    fn binary_expression(&mut self, node: &BinaryExpression, env: &Environment<'src, '_>) {
+    fn binary_expression(&mut self, node: &BinaryExpression, env: &Environment<'_>) {
         // this is a pretty big function, not sure how to shrink it
         let push_left = |cg: &mut Self| cg.expression(&node.left, env);
 
@@ -666,7 +662,7 @@ impl<'src> Codegen {
     }
 
     /// Looks up variable in `env` and pushes its value to stack.
-    fn identifier(&mut self, node: &Identifier, env: &Environment<'src, '_>) {
+    fn identifier(&mut self, node: &Identifier, env: &Environment<'_>) {
         let var_location = env
             .lookup(node.src.as_str())
             .expect("variable should've been found");
@@ -700,17 +696,13 @@ impl<'src> Codegen {
     /// this is just syntactically required or to indicate
     /// operation order in expressions) and pushes its
     /// value onto stack.
-    fn parenthesized_expression(
-        &mut self,
-        node: &ParenthesizedExpression,
-        env: &Environment<'src, '_>,
-    ) {
+    fn parenthesized_expression(&mut self, node: &ParenthesizedExpression, env: &Environment<'_>) {
         self.expression(&node.child, env);
     }
 
     /// Pushes the value of each of the passed arguments
     /// onto stack sequentially.
-    fn argument_list(&mut self, node: &ArgumentList, env: &Environment<'src, '_>) {
+    fn argument_list(&mut self, node: &ArgumentList, env: &Environment<'_>) {
         for argument in &node.children {
             self.expression(argument, env);
         }
