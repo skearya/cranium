@@ -26,23 +26,130 @@ pub struct Codegen {
 struct Environment<'a> {
     /// The parent environment.
     parent: Option<&'a Environment<'a>>,
-    /// Maps variable name to absolute location.
-    variables: HashMap<String, usize>,
+    /// Maps variable name to absolute location and type.
+    variables: HashMap<String, (usize, ValueType)>,
     /// Absolute location of the beginning of
     /// the local varaibles for the current scope.
     stack_base: usize,
 }
 
-impl Environment<'_> {
-    /// Returns absolute location of `name` variable.
-    fn lookup(&self, name: &str) -> Option<usize> {
-        match self.variables.get(name) {
-            Some(location) => Some(*location),
-            None => match self.parent {
-                Some(parent) => parent.lookup(name),
-                None => None,
+#[derive(Clone, Copy, PartialEq)]
+/// The type associated with a value.
+enum ValueType {
+    /// Void type (no return). Size 0.
+    Void,
+    /// Boolean type (true or false). Size 1.
+    Bool,
+    /// The 8-bit integer type. Unsigned, but that's contentious.
+    // TODO: real C chars are signed by default
+    Char,
+    // TODO: structs, typedefs, etc.
+}
+
+impl ValueType {
+    /// Returns the `ValueType` associated with a type specifier node and the environment it occured within.
+    fn from_type_specifier(spec: &TypeSpecifier, _env: &Environment) -> Self {
+        match *spec {
+            TypeSpecifier::PrimitiveType(ref prim) => match prim.src.as_str() {
+                "char" => Self::Char,
+                "bool" => Self::Bool,
+                "void" => Self::Void,
+                _ => panic!("Unknown primitive type specifier encountered: {}", prim.src),
             },
         }
+    }
+
+    /// Gets the type associated with an expression given the environment it occurred within.
+    fn from_expression(expr: &Expression, env: &Environment) -> Self {
+        match *expr {
+            Expression::Identifier(ref id) => {
+                env.lookup_variable(&id.src)
+                    .expect("Variable should be defined")
+                    .1
+            }
+            Expression::AssignmentExpression(ref it) => {
+                env.lookup_variable(&it.left.src)
+                    .expect("Variable should be defined")
+                    .1
+            }
+            Expression::BinaryExpression(ref binexpr) => Self::from_binary_expression(binexpr, env),
+            // if i ever do functions this will be a bit more involved
+            Expression::CallExpression(ref call) => match call.function.src.as_str() {
+                "putchar" => Self::Void,
+                _ => unimplemented!("Only supporting putchar function"),
+            },
+            Expression::CharLiteral(_) | Expression::NumberLiteral(_) => Self::Char,
+            Expression::True | Expression::False => Self::Bool,
+            // these guys still disgust me
+            Expression::UpdateExpression(_) => Self::Char,
+        }
+    }
+
+    /// Returns the result type of a binary expression occuring within `env`.
+    fn from_binary_expression(binary_expr: &BinaryExpression, env: &Environment) -> Self {
+        let left_type = Self::from_expression(&binary_expr.left, env);
+        let right_type = Self::from_expression(&binary_expr.right, env);
+
+        if left_type != right_type {
+            unimplemented!("not doing cross-type operators");
+        }
+
+        match *binary_expr.operator {
+            BinaryOperator::EqualsCheck | BinaryOperator::NotEqualsCheck => Self::Bool,
+            BinaryOperator::Plus | BinaryOperator::Minus => {
+                // integer types only.
+                // in C, bools can also do this
+                // because they dont exist and are
+                // really just 1-byte integers
+                // which is silly but idc and im not gonna care
+                assert!(matches!(left_type, Self::Char), "non-integer type used for addition or subtraction");
+
+                Self::Char
+            }
+        }
+    }
+
+    /// Returns the size (in bytes) of the `ValueType`.
+    fn size(&self) -> usize {
+        match *self {
+            Self::Void => 0,
+            Self::Bool => 1,
+            Self::Char => 1,
+        }
+    }
+}
+
+/// Takes a declaration node and the environment it encounters in and returns the name and type it's associated with.
+fn interpret_declaration(decl: &Declaration, env: &Environment) -> (String, ValueType) {
+    /// Takes a declarator node, the type it was associated with, and the environment it occurred within and returns the associated name and type for the declarator.
+    fn interpret_declarator(
+        declarator: &Declarator,
+        prior_type: ValueType,
+        env: &Environment,
+    ) -> (String, ValueType) {
+        match *declarator {
+            Declarator::Identifier(ref id) => (id.src.clone(), prior_type),
+            Declarator::InitDeclarator(ref init) => {
+                interpret_declarator(&init.declarator, prior_type, env)
+            }
+            Declarator::FunctionDeclarator(_) => panic!("Unexpected function declarator"),
+        }
+    }
+
+    interpret_declarator(
+        &decl.declarator,
+        ValueType::from_type_specifier(&decl.r#type, env),
+        env,
+    )
+}
+
+impl Environment<'_> {
+    /// Returns absolute location and type of a variable.
+    fn lookup_variable(&self, name: &str) -> Option<(usize, ValueType)> {
+        self.variables
+            .get(name)
+            .copied()
+            .or(self.parent.and_then(|parent| parent.lookup_variable(name)))
     }
 }
 
@@ -90,6 +197,27 @@ impl Codegen {
         }
     }
 
+    /// Moves the memory head by a distance either to the left
+    /// (`n < 0`) or to the right (`n > 0`). This generates
+    /// BF code and moves the codegen's stack pointer simultaneously.
+    fn move_head(&mut self, n: isize) {
+        let magnitude = n.unsigned_abs();
+
+        match n {
+            ..0 => {
+                self.stack_pointer -= magnitude;
+
+                self.push_n(magnitude, '<');
+            }
+            0 => {} // why?
+            1.. => {
+                self.stack_pointer += magnitude;
+
+                self.push_n(magnitude, '>');
+            }
+        }
+    }
+
     /// Clears the all contents of `env`'s local variables,
     /// resetting the codegen's stack pointer to base as well.
     fn clear_environment(&mut self, env: Environment) {
@@ -105,33 +233,16 @@ impl Codegen {
     ///
     /// Assumes the stack pointer is at the appropriate location
     /// to insert the variable.
-    fn add_variable(&mut self, env: &mut Environment<'_>, declaration: &Declaration) {
-        // Sizes over 1 coming soon...
-        let size: usize = match *declaration.r#type {
-            TypeSpecifier::PrimitiveType(ref pt) => match pt.src.as_str() {
-                "char" | "bool" => 1,
-                _ => unimplemented!(),
-            },
-        };
+    fn add_variable(&mut self, env: &mut Environment, decl: &Declaration) {
+        let (name, r#type) = interpret_declaration(decl, env);
 
-        let name = match *declaration.declarator {
-            Declarator::Identifier(ref id) => id.src.clone(),
-            Declarator::InitDeclarator(ref init) => match *init.declarator {
-                Declarator::Identifier(ref id) => id.src.clone(),
-                Declarator::InitDeclarator(_) => unimplemented!(),
-                Declarator::FunctionDeclarator(_) => unimplemented!(),
-            },
-            Declarator::FunctionDeclarator(_) => unimplemented!(),
-        };
-
-        if env.lookup(&name).is_some() {
+        if env.lookup_variable(&name).is_some() {
             panic!("Colliding variable declaration");
         }
 
-        env.variables.insert(name, self.stack_pointer);
+        env.variables.insert(name, (self.stack_pointer, r#type));
 
-        self.push_n(size, '>');
-        self.stack_pointer += size;
+        self.move_head(r#type.size().cast_signed());
     }
 
     /// Top-level call to compile the C file to BF.
@@ -203,6 +314,7 @@ impl Codegen {
             BlockChildren::Declaration(d) => Some(d),
             _ => None,
         }) {
+            // TODO: problematic add_variable call...
             self.add_variable(&mut env, declaration);
         }
 
@@ -220,8 +332,8 @@ impl Codegen {
             self.stack_pointer,
             env.variables
                 .values()
-                .max()
-                .map(|&x| x + 1)
+                .max_by(|(loc1, _), (loc2, _)| loc1.cmp(loc2))
+                .map(|&(loc, ref r#type)| loc + r#type.size())
                 .unwrap_or(env.stack_base),
             "Stack not empty on scope exit"
         );
@@ -231,37 +343,36 @@ impl Codegen {
 
     /// Generates code for a variable declaration, assuming
     /// the environment already has an assigned location for it.
-    fn declaration(&mut self, node: &Declaration, env: &Environment<'_>) {
-        // type system here we come
-        match *node.r#type {
-            TypeSpecifier::PrimitiveType(ref pt) => match pt.src.as_str() {
-                "bool" | "char" => {}
-                _ => todo!(),
-            },
-        }
-
-        match *node.declarator {
+    // TODO: Merge this and `add_variable`, they feel like they should just be the same thing.
+    fn declaration(&mut self, decl: &Declaration, env: &Environment<'_>) {
+        match *decl.declarator {
             Declarator::Identifier(_) => {}
             Declarator::InitDeclarator(ref init) => {
+                let (name, r#type) = interpret_declaration(decl, env);
+
+                // TODO: type casting?
+                let expr_type = ValueType::from_expression(&init.value, env);
+                if r#type != expr_type {
+                    unimplemented!("Assigning values of incompatible types");
+                }
                 self.expression(&init.value, env);
 
-                // size-dependent
-                self.push('<');
-                self.stack_pointer -= 1;
-
-                let var_location = env.variables[match *init.declarator {
-                    Declarator::Identifier(ref id) => id.src.as_str(),
-                    Declarator::InitDeclarator(_) => unimplemented!(),
-                    Declarator::FunctionDeclarator(_) => unimplemented!(),
-                }];
+                // discarding type because we already established it from `interpret_declaration`.
+                // i really should merge these functions but wtv
+                let (var_location, _) = env.variables[&name];
                 let var_offset = self.stack_pointer - var_location;
 
-                bf_loop!(self, {
-                    self.push_n(var_offset, '<');
-                    self.push('+');
-                    self.push_n(var_offset, '>');
-                    self.push('-');
-                });
+                for _ in 0..r#type.size() {
+                    self.move_head(-1);
+
+                    // copying values
+                    bf_loop!(self, {
+                        self.push_n(var_offset, '<');
+                        self.push('+');
+                        self.push_n(var_offset, '>');
+                        self.push('-');
+                    });
+                }
             }
             Declarator::FunctionDeclarator(_) => unimplemented!(),
         }
@@ -280,8 +391,8 @@ impl Codegen {
 
                 let clear_zone_size = self.stack_pointer - old_stack_top;
                 for _ in 0..clear_zone_size {
-                    self.push_str("<[-]");
-                    self.stack_pointer -= 1;
+                    self.move_head(-1);
+                    self.push_str("[-]");
                 }
             }
             Statement::ForStatement(ref fs) => self.for_statement(fs, env),
@@ -323,9 +434,7 @@ impl Codegen {
             match node.condition {
                 Some(ref cond) => {
                     cg.expression(cond, &outer_env);
-
-                    cg.push('<');
-                    cg.stack_pointer -= 1;
+                    cg.move_head(-1);
                 }
                 // always true
                 None => cg.push('+'),
@@ -349,6 +458,9 @@ impl Codegen {
                 self.expression(update, &outer_env);
 
                 let dist = self.stack_pointer - old_sp;
+
+                // maybe new move_and_clear function? or would
+                // that tread too far into premature abstraction?
                 self.push_n_str(dist, "<[-]");
                 self.stack_pointer -= dist;
             }
@@ -364,8 +476,7 @@ impl Codegen {
         if let Some(alternative) = &node.alternative {
             // Init flag to 1
             self.push('+');
-            self.push('>');
-            self.stack_pointer += 1;
+            self.move_head(1);
 
             // Examine condition
             self.parenthesized_expression(&node.condition, env);
@@ -433,59 +544,80 @@ impl Codegen {
             Expression::CallExpression(ref ce) => {
                 self.argument_list(&ce.arguments, env);
 
-                match *ce.function {
-                    Expression::Identifier(ref id) => match id.src.as_str() {
-                        "putchar" => {
-                            self.push_str("<.[-]");
-                            self.stack_pointer -= 1;
-                        }
-                        _ => unimplemented!(),
-                    },
-                    Expression::AssignmentExpression(_)
-                    | Expression::BinaryExpression(_)
-                    | Expression::CallExpression(_)
-                    | Expression::CharLiteral(_)
-                    | Expression::False
-                    | Expression::NumberLiteral(_)
-                    | Expression::UpdateExpression(_)
-                    | Expression::True => unimplemented!(),
+                match ce.function.src.as_str() {
+                    "putchar" => {
+                        self.push_str("<.[-]");
+                        self.stack_pointer -= 1;
+                    }
+                    _ => unimplemented!("Only supporting putchar function"),
                 }
             }
             Expression::CharLiteral(ref cl) => self.char_literal_expression(cl),
-            Expression::False => {
-                self.push('>');
-                self.stack_pointer += 1;
-            }
             Expression::Identifier(ref id) => self.identifier(id, env),
             Expression::NumberLiteral(ref nl) => {
                 let num = nl.src.parse::<usize>().unwrap();
 
                 self.push_n(num, '+');
-                self.push('>');
-                self.stack_pointer += 1;
+                self.move_head(1);
             }
             Expression::True => {
-                self.push_str("+>");
-                self.stack_pointer += 1;
+                self.push('+');
+                self.move_head(1);
             }
+            Expression::False => self.move_head(1),
             Expression::UpdateExpression(ref ue) => {
+                // TODO: this thing just assumes the update was postfixed.
+                // there's no way to structurally check in the AST whether
+                // it was prefixed or postfixed, which SUCKS so i'd have
+                // to probably check sourcecode
+
                 let dist = match *ue.argument {
                     Expression::Identifier(ref id) => {
-                        let var_location = env
-                            .lookup(&id.src)
+                        let (var_location, r#type) = env
+                            .lookup_variable(&id.src)
                             .expect("Variable should have been defined");
+
+                        // this function is majorly uninvolved from the type system, sadly
+                        if r#type != ValueType::Char {
+                            unimplemented!(
+                                "Non-integer types not supported for update expressions"
+                            );
+                        }
 
                         self.stack_pointer - var_location
                     }
-                    _ => unimplemented!(),
+                    _ => unimplemented!("Non-identifiers not implemented for update expressions"),
                 };
 
-                self.push_n(dist, '<');
-                self.push(match *ue.operator {
+                // make space for final stack value
+                self.move_head(1);
+
+                // move and inspect
+                self.push_n(dist + 1, '<');
+                bf_loop!(self, {
+                    self.push('-');
+                    self.push_n(dist + 1, '>');
+                    self.push('+');
+                    self.push_n(dist + 1, '<');
+                });
+                self.push_n(dist + 1, '>');
+
+                // update
+                self.push(
+                match *ue.operator {
                     UpdateOperator::PlusPlus => '+',
                     UpdateOperator::MinusMinus => '-',
                 });
-                self.push_n(dist, '>');
+
+                // copy into variable and to stack
+                bf_loop!(self, {
+                    self.push_str("-<+");
+                    self.push_n(dist, '<');
+                    self.push('+');
+                    self.push_n(dist + 1, '>');
+                });
+
+                // we are now after the stack value, so we're done!
             }
         }
     }
@@ -493,55 +625,85 @@ impl Codegen {
     /// Evaluates an assignment expression, modifying lvalue
     /// and pushing rvalue onto stack.
     fn assignment_expression(&mut self, node: &AssignmentExpression, env: &Environment<'_>) {
-        // currently only supporting `id = expr` (no subscript etc)
+        // currently only supporting `id (=|+=|-=) expr` (no subscript etc)
+        // TODO: lvalue evaluation for subscript, struct access, etc
+
+        let (location, r#type) = env
+            .lookup_variable(&node.left.src)
+            .expect("Variable should be defined");
+
+        let var_size = r#type.size();
 
         // space for stack value
-        self.push('>');
-        self.stack_pointer += 1;
+        self.move_head(var_size.cast_signed());
 
         // evaluate and examine
         match *node.operator {
             AssignmentOperator::AssignEquals => {
                 self.expression(&node.right, env);
-                self.push('<');
-                self.stack_pointer -= 1;
+                self.move_head(var_size.cast_signed() * -1);
             }
+
+            // with both += and -= we're only doing integers (which are currently just chars)
+            // so we can safely assume size = 1.
+            
             AssignmentOperator::PlusEquals => {
+                if r#type != ValueType::Char {
+                    unimplemented!("Non-integer types not doing plus-equals assignment");
+                }
+                
                 // push onto stack
                 self.identifier(&node.left, env);
                 self.expression(&node.right, env);
 
                 // add & examine
-                self.push_str("<[-<+>]<");
-                self.stack_pointer -= 2;
+                self.move_head(-1);
+                self.push_str("[-<+>]");
+                self.move_head(-1);
             }
             AssignmentOperator::MinusEquals => {
+                if r#type != ValueType::Char {
+                    unimplemented!("Non-integer types not doing minus-equals assignment");
+                }
+
                 // push onto stack
                 self.identifier(&node.left, env);
                 self.expression(&node.right, env);
 
                 // sub & examine
-                self.push_str("<[-<->]<");
-                self.stack_pointer -= 2;
+                self.move_head(-1);
+                self.push_str("[-<->]");
+                self.move_head(-1);
             }
         }
 
-        let var_location = env
-            .lookup(node.left.src.as_str())
-            .expect("variable should have been declared prior to assignment");
-        let var_offset = self.stack_pointer - var_location;
+        let var_dist = self.stack_pointer - location;
 
-        // Clear original var memory
-        self.push_n(var_offset, '<');
-        self.push_str("[-]");
-        self.push_n(var_offset, '>');
+        // clear original var memory
+        self.push_n(var_dist, '<');
+        for _ in 0..var_size {
+            self.push_str("[-]>");
+        }
+        self.push_n(var_dist - var_size, '>');
 
-        bf_loop!(self, {
-            self.push_n(var_offset, '<');
-            self.push('+');
-            self.push_n(var_offset, '>');
-            self.push('-');
-        });
+        // copy into stack value and local variable
+
+        // this loop iterates over every cell in the temp value
+        for _ in 0..var_size {
+            bf_loop!(self, {
+                // subtract from temp, add to stack destination
+                self.push_str("-<+");
+                // move to local variable cell
+                self.push_n(var_dist - 1, '<');
+                // add to local
+                self.push('+');
+                // move back to temp value's cell
+                self.push_n(var_dist, '>');
+            });
+            // advance to next cell of temp
+            self.push('>');
+        }
+        self.push('<');
 
         // Now stack pointer is after first `right`, where it should be!
     }
@@ -550,27 +712,36 @@ impl Codegen {
     /// value.
     fn binary_expression(&mut self, node: &BinaryExpression, env: &Environment<'_>) {
         // this is a pretty big function, not sure how to shrink it
-        let push_left = |cg: &mut Self| cg.expression(&node.left, env);
 
+        let push_left = |cg: &mut Self| cg.expression(&node.left, env);
         let push_right = |cg: &mut Self| cg.expression(&node.right, env);
 
+        let left_type = ValueType::from_expression(&node.left, env);
+        let right_type = ValueType::from_expression(&node.right, env);
+
+        if left_type != right_type {
+            unimplemented!("Binary operators across types");
+        }
+        
         match *node.operator {
+            // TODO: equality for all types
             BinaryOperator::EqualsCheck => {
+                if !matches!(left_type, ValueType::Bool | ValueType::Char) {
+                    todo!("Equality checks for types outside of char and bool");
+                }
+                
                 // set flag to 1
-                self.push_str("+>");
-                self.stack_pointer += 1;
+                self.push('+');
+                self.move_head(1);
 
                 push_left(self);
                 push_right(self);
 
                 // Subtract a - b
-                {
-                    self.push_str("<[<->-]");
-
-                    self.stack_pointer -= 1;
-                }
-
-                self.push('<');
+                self.move_head(-1);
+                self.push_str("[-<->]");
+                // inspect difference (2nd value is cleared)
+                self.move_head(-1);
 
                 // if difference != 0 (they are NOT equal),
                 // clear diff and set flag to 0
@@ -578,20 +749,10 @@ impl Codegen {
                     self.push_str("[-]");
                     self.push_str("<->");
                 });
-
-                self.stack_pointer -= 1;
-            }
-            BinaryOperator::Minus => {
-                push_left(self);
-                push_right(self);
-                self.push_str("<[<->-]");
-
-                self.stack_pointer -= 1;
             }
             BinaryOperator::NotEqualsCheck => {
                 // set flag = 0
-                self.push_str(">");
-                self.stack_pointer += 1;
+                self.move_head(1);
 
                 push_left(self);
                 push_right(self);
@@ -603,7 +764,8 @@ impl Codegen {
                     self.stack_pointer -= 1;
                 }
 
-                self.push('<');
+                // inspect result
+                self.move_head(-1);
 
                 // if difference != 0 (they ARE unequal)
                 // clear difference and set flag to one
@@ -611,15 +773,18 @@ impl Codegen {
                     self.push_str("[-]");
                     self.push_str("<+>");
                 });
-
-                self.stack_pointer -= 1;
             }
             BinaryOperator::Plus => {
                 push_left(self);
                 push_right(self);
-                self.push_str("<[<+>-]");
-
-                self.stack_pointer -= 1;
+                self.move_head(-1);
+                self.push_str("[<+>-]");
+            }
+            BinaryOperator::Minus => {
+                push_left(self);
+                push_right(self);
+                self.move_head(-1);
+                self.push_str("[<->-]");
             }
         }
     }
@@ -657,39 +822,63 @@ impl Codegen {
         };
 
         self.push_n(c as usize, '+');
-        self.push('>');
-        self.stack_pointer += 1;
+        self.move_head(1);
     }
 
     /// Looks up variable in `env` and pushes its value to stack.
     fn identifier(&mut self, node: &Identifier, env: &Environment<'_>) {
-        let var_location = env
-            .lookup(node.src.as_str())
+        let (var_location, var_type) = env
+            .lookup_variable(node.src.as_str())
             .expect("variable should've been found");
-        let var_offset = self.stack_pointer - var_location;
+        let var_distance = self.stack_pointer - var_location;
+        let var_size = var_type.size();
 
-        // Copy to two locations
-        self.push_n(var_offset, '<');
-        bf_loop!(self, {
-            self.push('-');
-            self.push_n(var_offset, '>');
-            self.push('+');
+        // Copy to two locations: stack and temp (adjacent)
+
+        // move to var location
+        self.push_n(var_distance, '<');
+        // for each of the local's cells...
+        for _ in 0..var_size {
+            // until cell empty...
+            bf_loop!(self, {
+                // subtract from local cell
+                self.push('-');
+                // move back to stack
+                self.push_n(var_distance, '>');
+                // incremement stack and temp cell
+                self.push_str("+>+");
+                // move back to local
+                self.push_n(var_distance + 1, '<');
+            });
+            // now move to next cell
             self.push('>');
-            self.push('+');
-            self.push_n(var_offset + 1, '<');
-        });
+        }
+        // move back to temp
+        self.push_n(var_distance, '>');
 
-        // Move destination two back into source
-        self.push_n(var_offset + 1, '>');
+        // Move temp back into source
 
-        bf_loop!(self, {
-            self.push('-');
-            self.push_n(var_offset + 1, '<');
-            self.push('+');
-            self.push_n(var_offset + 1, '>');
-        });
+        // for each temp cell...
+        for _ in 0..var_size {
+            // while temp cell isn't empty...
+            bf_loop!(self, {
+                // subtract from temp cell
+                self.push('-');
+                // move to variable
+                self.push_n(var_distance + 1, '<');
+                // increment variable cell
+                self.push('+');
+                // move back to temp
+                self.push_n(var_distance + 1, '>');
+            });
+            // advance to next cell
+            self.push('>');
+        }
+        // move back to top of stack
+        self.push_n(var_size, '<');
 
-        self.stack_pointer += 1;
+        // now we've moved by one var_size
+        self.stack_pointer += var_size;
     }
 
     /// Evaluates a parenthesized expression (most cases,

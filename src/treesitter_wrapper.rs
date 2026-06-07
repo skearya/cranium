@@ -524,7 +524,7 @@ declare_nodes! {
     CallExpression ("call_expression") {
         fields: {
             arguments: ArgumentList,
-            * function: Expression,
+            function: Identifier,
         },
     },
     ParenthesizedExpression ("parenthesized_expression") {
