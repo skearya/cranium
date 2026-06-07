@@ -85,7 +85,9 @@ impl ValueType {
             Expression::True | Expression::False => Self::Bool,
             // these guys still disgust me
             Expression::UpdateExpression(_) => Self::Char,
-            Expression::ParenthesizedExpression(ref paren_expr) => Self::from_expression(&paren_expr.child, env),
+            Expression::ParenthesizedExpression(ref paren_expr) => {
+                Self::from_expression(&paren_expr.child, env)
+            }
         }
     }
 
@@ -439,7 +441,7 @@ impl Codegen {
                 // i really should merge these functions but wtv
                 let (var_location, _) = env.variables[&name];
                 let var_offset = self.stack_pointer - var_size - var_location;
-                
+
                 // for each cell...
                 for _ in 0..var_size {
                     // move into the cell
@@ -656,8 +658,12 @@ impl Codegen {
                 self.move_head(1);
             }
             Expression::False => self.move_head(1),
-            Expression::UpdateExpression(ref update_expr) => self.update_expression(update_expr, env),
-            Expression::ParenthesizedExpression(ref paren_expr) => self.parenthesized_expression(paren_expr, env),
+            Expression::UpdateExpression(ref update_expr) => {
+                self.update_expression(update_expr, env)
+            }
+            Expression::ParenthesizedExpression(ref paren_expr) => {
+                self.parenthesized_expression(paren_expr, env)
+            }
         }
     }
 
@@ -920,8 +926,8 @@ impl Codegen {
         self.stack_pointer += var_size;
     }
 
-    /// Generates code for an update expression 
-    /// 
+    /// Generates code for an update expression
+    ///
     /// For technical reasons, this function cannot easily ascertain whether the update operator was prefixed or postfixed so it currently assumes it's postfixed.
     fn update_expression(&mut self, update_expr: &UpdateExpression, env: &Environment) {
         // TODO: this thing currently just assumes the update was postfixed.
@@ -937,9 +943,7 @@ impl Codegen {
 
                 // this function is majorly uninvolved from the type system, sadly
                 if r#type != ValueType::Char {
-                    unimplemented!(
-                        "Non-integer types not supported for update expressions"
-                    );
+                    unimplemented!("Non-integer types not supported for update expressions");
                 }
 
                 self.stack_pointer - var_location
@@ -976,7 +980,7 @@ impl Codegen {
 
         // we are now after the stack value, so we're done!
     }
-    
+
     /// Evaluates a parenthesized expression (most cases,
     /// this is just syntactically required or to indicate
     /// operation order in expressions) and pushes its
