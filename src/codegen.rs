@@ -4,8 +4,6 @@ use std::collections::HashMap;
 
 use crate::treesitter_wrapper::*;
 
-use crate::macros::bf_loop;
-
 /// Stateful type keeping track of the C to BF code
 /// generation.
 pub struct Codegen {
@@ -102,7 +100,10 @@ impl ValueType {
                 // because they dont exist and are
                 // really just 1-byte integers
                 // which is silly but idc and im not gonna care
-                assert!(matches!(left_type, Self::Char), "non-integer type used for addition or subtraction");
+                assert!(
+                    matches!(left_type, Self::Char),
+                    "non-integer type used for addition or subtraction"
+                );
 
                 Self::Char
             }
@@ -216,6 +217,13 @@ impl Codegen {
                 self.push_n(magnitude, '>');
             }
         }
+    }
+
+    /// Generates a BF loop where the code in `blk` is executed in-between pushing the loop's delimiting `[` and `]`. The closure `blk` must accept a mutable reference to the `Codegen` object which it then uses to invokes any code generation.
+    fn bf_loop<F: FnOnce(&mut Self)>(&mut self, blk: F) {
+        self.push('[');
+        blk(self);
+        self.push(']');
     }
 
     /// Clears the all contents of `env`'s local variables,
@@ -366,11 +374,11 @@ impl Codegen {
                     self.move_head(-1);
 
                     // copying values
-                    bf_loop!(self, {
-                        self.push_n(var_offset, '<');
-                        self.push('+');
-                        self.push_n(var_offset, '>');
-                        self.push('-');
+                    self.bf_loop(|cg| {
+                        cg.push_n(var_offset, '<');
+                        cg.push('+');
+                        cg.push_n(var_offset, '>');
+                        cg.push('-');
                     });
                 }
             }
@@ -443,29 +451,29 @@ impl Codegen {
 
         examine_condition(self);
 
-        bf_loop!(self, {
+        self.bf_loop(|cg| {
             // clear cond if true
-            self.push_str("[-]");
+            cg.push_str("[-]");
 
             // common case is compound_statement;
             // in which case, new environment created,
             // which is correct behavior.
-            self.statement(&node.body, &outer_env);
+            cg.statement(&node.body, &outer_env);
 
             if let Some(update) = &node.update {
-                let old_sp = self.stack_pointer;
+                let old_sp = cg.stack_pointer;
 
-                self.expression(update, &outer_env);
+                cg.expression(update, &outer_env);
 
-                let dist = self.stack_pointer - old_sp;
+                let dist = cg.stack_pointer - old_sp;
 
                 // maybe new move_and_clear function? or would
                 // that tread too far into premature abstraction?
-                self.push_n_str(dist, "<[-]");
-                self.stack_pointer -= dist;
+                cg.push_n_str(dist, "<[-]");
+                cg.stack_pointer -= dist;
             }
 
-            examine_condition(self);
+            examine_condition(cg);
         });
 
         self.clear_environment(outer_env);
@@ -473,6 +481,13 @@ impl Codegen {
 
     /// Generates code for an `if` statement.
     fn if_statement(&mut self, node: &IfStatement, env: &Environment<'_>) {
+        if !matches!(
+            ValueType::from_expression(&node.condition.child, env),
+            ValueType::Char | ValueType::Bool
+        ) {
+            unimplemented!("Condition of type other than bool or char");
+        }
+
         if let Some(alternative) = &node.alternative {
             // Init flag to 1
             self.push('+');
@@ -480,59 +495,63 @@ impl Codegen {
 
             // Examine condition
             self.parenthesized_expression(&node.condition, env);
-            self.push('<');
-            self.stack_pointer -= 1;
+            self.move_head(-1);
 
-            // If cond != 0, set flag = 0, eval consequence
-            bf_loop!(self, {
-                self.push_str("<->");
-                self.push_str("[-]");
+            // If cond != 0 (true), set flag = 0, eval consequence
+            self.bf_loop(|cg| {
+                cg.push_str("<->");
+                cg.push_str("[-]");
 
-                self.statement(&node.consequence, env);
+                cg.statement(&node.consequence, env);
             });
 
             // Cond space guaranteed to be zero, moving to examine flag
-            self.push('<');
-            self.stack_pointer -= 1;
+            self.move_head(-1);
 
-            // If flag != 0 (i.e., cond not satisfied), eval alternative
-            bf_loop!(self, {
-                self.push('-');
+            // If flag != 0 (i.e., cond false), eval alternative
+            self.bf_loop(|cg| {
+                cg.push('-');
 
-                self.statement(&alternative.child, env);
+                cg.statement(&alternative.child, env);
             });
         } else {
             // Examine condition
             self.parenthesized_expression(&node.condition, env);
-            self.push('<');
-            self.stack_pointer -= 1;
+            self.move_head(-1);
 
-            // If cond != 0, set zero and eval consequence
-            bf_loop!(self, {
-                self.push_str("[-]");
+            // If cond != 0 (true), set it to zero and eval consequence
+            self.bf_loop(|cg| {
+                cg.push_str("[-]");
 
-                self.statement(&node.consequence, env);
+                cg.statement(&node.consequence, env);
             });
         }
     }
 
     /// Generates code for a `while` statement.
     fn while_statement(&mut self, node: &WhileStatement, env: &Environment<'_>) {
+        if !matches!(
+            ValueType::from_expression(&node.condition.child, env),
+            ValueType::Char | ValueType::Bool
+        ) {
+            unimplemented!("Condition of type other than bool or char");
+        }
+
         // Examine condition
         self.parenthesized_expression(&node.condition, env);
         self.push('<');
         self.stack_pointer -= 1;
 
         // If cond != 0, clear and evaluate body
-        bf_loop!(self, {
-            self.push_str("[-]");
+        self.bf_loop(|cg| {
+            cg.push_str("[-]");
 
-            self.statement(&node.body, env);
+            cg.statement(&node.body, env);
 
             // Examine condition again so we can run it back
-            self.parenthesized_expression(&node.condition, env);
-            self.push('<');
-            self.stack_pointer -= 1;
+            cg.parenthesized_expression(&node.condition, env);
+            cg.push('<');
+            cg.stack_pointer -= 1;
         });
     }
 
@@ -546,10 +565,10 @@ impl Codegen {
 
                 match ce.function.src.as_str() {
                     "putchar" => {
-                        self.push_str("<.[-]");
-                        self.stack_pointer -= 1;
+                        self.move_head(-1);
+                        self.push_str(".[-]");
                     }
-                    _ => unimplemented!("Only supporting putchar function"),
+                    _ => unimplemented!("Non-putchar function invocation"),
                 }
             }
             Expression::CharLiteral(ref cl) => self.char_literal_expression(cl),
@@ -592,29 +611,28 @@ impl Codegen {
                 // make space for final stack value
                 self.move_head(1);
 
-                // move and inspect
+                // move value from variable to temp and inspect
                 self.push_n(dist + 1, '<');
-                bf_loop!(self, {
-                    self.push('-');
-                    self.push_n(dist + 1, '>');
-                    self.push('+');
-                    self.push_n(dist + 1, '<');
+                self.bf_loop(|cg| {
+                    cg.push('-');
+                    cg.push_n(dist + 1, '>');
+                    cg.push('+');
+                    cg.push_n(dist + 1, '<');
                 });
                 self.push_n(dist + 1, '>');
 
-                // update
-                self.push(
-                match *ue.operator {
+                // update temp according to operator
+                self.push(match *ue.operator {
                     UpdateOperator::PlusPlus => '+',
                     UpdateOperator::MinusMinus => '-',
                 });
 
                 // copy into variable and to stack
-                bf_loop!(self, {
-                    self.push_str("-<+");
-                    self.push_n(dist, '<');
-                    self.push('+');
-                    self.push_n(dist + 1, '>');
+                self.bf_loop(|cg| {
+                    cg.push_str("-<+");
+                    cg.push_n(dist, '<');
+                    cg.push('+');
+                    cg.push_n(dist + 1, '>');
                 });
 
                 // we are now after the stack value, so we're done!
@@ -646,12 +664,11 @@ impl Codegen {
 
             // with both += and -= we're only doing integers (which are currently just chars)
             // so we can safely assume size = 1.
-            
             AssignmentOperator::PlusEquals => {
                 if r#type != ValueType::Char {
                     unimplemented!("Non-integer types not doing plus-equals assignment");
                 }
-                
+
                 // push onto stack
                 self.identifier(&node.left, env);
                 self.expression(&node.right, env);
@@ -688,17 +705,18 @@ impl Codegen {
 
         // copy into stack value and local variable
 
-        // this loop iterates over every cell in the temp value
+        // for every cell in the temp value...
         for _ in 0..var_size {
-            bf_loop!(self, {
+            // while the temp cell is nonzero...
+            self.bf_loop(|cg| {
                 // subtract from temp, add to stack destination
-                self.push_str("-<+");
+                cg.push_str("-<+");
                 // move to local variable cell
-                self.push_n(var_dist - 1, '<');
+                cg.push_n(var_dist - 1, '<');
                 // add to local
-                self.push('+');
-                // move back to temp value's cell
-                self.push_n(var_dist, '>');
+                cg.push('+');
+                // move back to temp value's cell and repeat
+                cg.push_n(var_dist, '>');
             });
             // advance to next cell of temp
             self.push('>');
@@ -722,14 +740,14 @@ impl Codegen {
         if left_type != right_type {
             unimplemented!("Binary operators across types");
         }
-        
+
         match *node.operator {
             // TODO: equality for all types
             BinaryOperator::EqualsCheck => {
                 if !matches!(left_type, ValueType::Bool | ValueType::Char) {
                     todo!("Equality checks for types outside of char and bool");
                 }
-                
+
                 // set flag to 1
                 self.push('+');
                 self.move_head(1);
@@ -745,9 +763,9 @@ impl Codegen {
 
                 // if difference != 0 (they are NOT equal),
                 // clear diff and set flag to 0
-                bf_loop!(self, {
-                    self.push_str("[-]");
-                    self.push_str("<->");
+                self.bf_loop(|cg| {
+                    cg.push_str("[-]");
+                    cg.push_str("<->");
                 });
             }
             BinaryOperator::NotEqualsCheck => {
@@ -769,9 +787,9 @@ impl Codegen {
 
                 // if difference != 0 (they ARE unequal)
                 // clear difference and set flag to one
-                bf_loop!(self, {
-                    self.push_str("[-]");
-                    self.push_str("<+>");
+                self.bf_loop(|cg| {
+                    cg.push_str("[-]");
+                    cg.push_str("<+>");
                 });
             }
             BinaryOperator::Plus => {
@@ -840,15 +858,15 @@ impl Codegen {
         // for each of the local's cells...
         for _ in 0..var_size {
             // until cell empty...
-            bf_loop!(self, {
+            self.bf_loop(|cg| {
                 // subtract from local cell
-                self.push('-');
+                cg.push('-');
                 // move back to stack
-                self.push_n(var_distance, '>');
+                cg.push_n(var_distance, '>');
                 // incremement stack and temp cell
-                self.push_str("+>+");
+                cg.push_str("+>+");
                 // move back to local
-                self.push_n(var_distance + 1, '<');
+                cg.push_n(var_distance + 1, '<');
             });
             // now move to next cell
             self.push('>');
@@ -861,15 +879,15 @@ impl Codegen {
         // for each temp cell...
         for _ in 0..var_size {
             // while temp cell isn't empty...
-            bf_loop!(self, {
+            self.bf_loop(|cg| {
                 // subtract from temp cell
-                self.push('-');
+                cg.push('-');
                 // move to variable
-                self.push_n(var_distance + 1, '<');
+                cg.push_n(var_distance + 1, '<');
                 // increment variable cell
-                self.push('+');
+                cg.push('+');
                 // move back to temp
-                self.push_n(var_distance + 1, '>');
+                cg.push_n(var_distance + 1, '>');
             });
             // advance to next cell
             self.push('>');
