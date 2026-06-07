@@ -304,7 +304,7 @@ impl Codegen {
     fn add_variable(&mut self, env: &mut Environment, decl: &Declaration) {
         let (name, r#type) = interpret_declaration(decl, env);
 
-        if env.lookup_variable(&name).is_some() {
+        if env.variables.contains_key(&name) {
             panic!("Colliding variable declaration");
         }
 
@@ -424,24 +424,39 @@ impl Codegen {
                 if r#type != expr_type {
                     unimplemented!("Assigning values of incompatible types");
                 }
+                let var_size = r#type.size();
+
+                // push and do NOT inspect
                 self.expression(&init.value, env);
+
+                // now pointer is directly after data, e.g.:
+                // xxx...yyy
+                //          ^
+                // size = 3
+                // var_offset = 6
 
                 // discarding type because we already established it from `interpret_declaration`.
                 // i really should merge these functions but wtv
                 let (var_location, _) = env.variables[&name];
-                let var_offset = self.stack_pointer - var_location;
-
-                for _ in 0..r#type.size() {
+                let var_offset = self.stack_pointer - var_size - var_location;
+                
+                // for each cell...
+                for _ in 0..var_size {
+                    // move into the cell
                     self.move_head(-1);
-
-                    // copying values
+                    // while cell isn't empty...
                     self.bf_loop(|cg| {
-                        cg.push_n(var_offset, '<');
-                        cg.push('+');
-                        cg.push_n(var_offset, '>');
+                        // decrement from stack cell
                         cg.push('-');
+                        // move to corresponding variable cell
+                        cg.push_n(var_offset, '<');
+                        // increment variable cell
+                        cg.push('+');
+                        // move back to stack cell
+                        cg.push_n(var_offset, '>');
                     });
                 }
+                // now we're AT stack empty so we're chill.
             }
             Declarator::FunctionDeclarator(_) => unimplemented!(),
         }
