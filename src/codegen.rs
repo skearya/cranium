@@ -24,11 +24,13 @@ pub struct Codegen {
 struct Environment<'a> {
     /// The parent environment.
     parent: Option<&'a Environment<'a>>,
-    /// Maps variable name to absolute location and type.
-    variables: HashMap<String, (usize, ValueType)>,
     /// Absolute location of the beginning of
     /// the local varaibles for the current scope.
     stack_base: usize,
+    /// Maps variable name to absolute location and type.
+    variables: HashMap<String, (usize, ValueType)>,
+    /// Maps `typedef`-created type name to the `ValueType`.
+    types: HashMap<String, ValueType>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -46,7 +48,7 @@ enum ValueType {
 
 impl ValueType {
     /// Returns the `ValueType` associated with a type specifier node and the environment it occured within.
-    fn from_type_specifier(spec: &TypeSpecifier, _env: &Environment) -> Self {
+    fn from_type_specifier(spec: &TypeSpecifier, env: &Environment) -> Self {
         match *spec {
             TypeSpecifier::PrimitiveType(ref prim) => match prim.src.as_str() {
                 "char" => Self::Char,
@@ -54,6 +56,9 @@ impl ValueType {
                 "void" => Self::Void,
                 _ => panic!("Unknown primitive type specifier encountered: {}", prim.src),
             },
+            TypeSpecifier::TypeIdentifier(ref id) => {
+                env.lookup_type(&id.src).expect("Type should be defined")
+            }
         }
     }
 
@@ -80,6 +85,7 @@ impl ValueType {
             Expression::True | Expression::False => Self::Bool,
             // these guys still disgust me
             Expression::UpdateExpression(_) => Self::Char,
+            Expression::ParenthesizedExpression(ref paren_expr) => Self::from_expression(&paren_expr.child, env),
         }
     }
 
@@ -123,15 +129,11 @@ impl ValueType {
 /// Takes a declaration node and the environment it encounters in and returns the name and type it's associated with.
 fn interpret_declaration(decl: &Declaration, env: &Environment) -> (String, ValueType) {
     /// Takes a declarator node, the type it was associated with, and the environment it occurred within and returns the associated name and type for the declarator.
-    fn interpret_declarator(
-        declarator: &Declarator,
-        prior_type: ValueType,
-        env: &Environment,
-    ) -> (String, ValueType) {
+    fn interpret_declarator(declarator: &Declarator, prior_type: ValueType) -> (String, ValueType) {
         match *declarator {
             Declarator::Identifier(ref id) => (id.src.clone(), prior_type),
             Declarator::InitDeclarator(ref init) => {
-                interpret_declarator(&init.declarator, prior_type, env)
+                interpret_declarator(&init.declarator, prior_type)
             }
             Declarator::FunctionDeclarator(_) => panic!("Unexpected function declarator"),
         }
@@ -140,17 +142,75 @@ fn interpret_declaration(decl: &Declaration, env: &Environment) -> (String, Valu
     interpret_declarator(
         &decl.declarator,
         ValueType::from_type_specifier(&decl.r#type, env),
-        env,
     )
 }
 
-impl Environment<'_> {
+/// Returns the associated name and type with a `typedef` statement.
+fn interpret_type_definition(typedef: &TypeDefinition, env: &Environment) -> (String, ValueType) {
+    fn interpret_type_declarator(
+        declarator: &TypeDeclarator,
+        prior_type: ValueType,
+    ) -> (String, ValueType) {
+        match *declarator {
+            TypeDeclarator::TypeIdentifier(ref id) => (id.src.clone(), prior_type),
+            // TODO: more declarator variants (prolly just array...)
+        }
+    }
+
+    interpret_type_declarator(
+        &typedef.declarator,
+        ValueType::from_type_specifier(&typedef.r#type, env),
+    )
+}
+
+impl<'a> Environment<'a> {
+    /// Creates a new environment with an optional parent.
+    fn new(parent: Option<&'a Environment>) -> Self {
+        Self {
+            parent,
+            // horrendous (-ly beautiful?) one liner
+            stack_base: parent.map_or(0, |parent| {
+                parent.stack_base
+                    + parent
+                        .variables
+                        .values()
+                        .fold(0, |acc, &(_loc, r#type)| acc + r#type.size())
+            }),
+            variables: HashMap::new(),
+            types: HashMap::new(),
+        }
+    }
+
     /// Returns absolute location and type of a variable.
     fn lookup_variable(&self, name: &str) -> Option<(usize, ValueType)> {
         self.variables
             .get(name)
             .copied()
             .or(self.parent.and_then(|parent| parent.lookup_variable(name)))
+    }
+
+    /// Returns type associated with a name.
+    fn lookup_type(&self, name: &str) -> Option<ValueType> {
+        self.types
+            .get(name)
+            .copied()
+            .or(self.parent.and_then(|parent| parent.lookup_type(name)))
+    }
+
+    /// Adds a `typedef` type to the environment, given its name and type panicking if it redefines a type that already exists in the current scope.
+    fn add_type(&mut self, name: String, r#type: ValueType) {
+        if let Some(previous_type) = self.types.insert(name.clone(), r#type)
+            && previous_type != r#type
+        {
+            panic!("redefined {} type", &name);
+        }
+    }
+
+    /// Adds a `typedef` type to the environment given its definition node.
+    fn add_type_from_node(&mut self, typedef: &TypeDefinition) {
+        let (name, r#type) = interpret_type_definition(typedef, self);
+
+        self.add_type(name, r#type);
     }
 }
 
@@ -267,69 +327,70 @@ impl Codegen {
     /// For the purposes of this project this refers to
     /// a parsed C file.
     fn translation_unit(&mut self, root: &TranslationUnit) {
+        let mut top_level_env = Environment::new(None);
+
         for child in &root.children {
-            match *child.declarator {
-                Declarator::FunctionDeclarator(ref fd) => {
-                    if let Declarator::Identifier(ref func_name) = *fd.declarator
-                        && func_name.src == "main"
-                    {
-                        match *child.r#type {
-                            TypeSpecifier::PrimitiveType(ref t) if t.src.as_str() == "int" => {}
-                            _ => panic!("main function does not have `int` return type"),
+            match *child {
+                TUChildren::FunctionDefinition(ref funcdef) => match *funcdef.declarator {
+                    Declarator::FunctionDeclarator(ref fd) => {
+                        if let Declarator::Identifier(ref func_name) = *fd.declarator
+                            && func_name.src == "main"
+                        {
+                            match *funcdef.r#type {
+                                TypeSpecifier::PrimitiveType(ref t) if t.src.as_str() == "int" => {}
+                                _ => panic!("main function does not have `int` return type"),
+                            }
+
+                            // sorry it's so unprofessional i just wanted the compiler to shut up
+                            fd.parameters.children.iter().for_each(|param_decl| {
+                                match *param_decl.declarator {
+                                    Declarator::Identifier(ref id) => println!("{} dies", &id.src),
+                                    Declarator::FunctionDeclarator(_) => println!("do NOT even bother passing a function declarator as a function parameter"),
+                                    Declarator::InitDeclarator(_) => println!("initialization??? in THIS signature??"),
+                                }
+                                match *param_decl.r#type {
+                                    TypeSpecifier::PrimitiveType(ref t) => println!("ESPECIALLY if it's of type {}", &t.src),
+                                    TypeSpecifier::TypeIdentifier(ref id) => println!("even with a type of {}", &id.src),
+                                }
+                                panic!("no chance main has any parameters");
+                            });
+
+                            self.main(funcdef, &top_level_env)
+                        } else {
+                            unimplemented!("non-main functions");
                         }
-
-                        // sorry it's so unprofessional i just wanted the compiler to shut up
-                        fd.parameters.children.iter().for_each(|x| {
-                            match *x.declarator {
-                                Declarator::Identifier(ref id) => println!("{} dies", id.src),
-                                Declarator::FunctionDeclarator(_) => println!("do NOT even bother passing a function declarator as a function parameter"),
-                                Declarator::InitDeclarator(_) => println!("initialization??? in THIS signature??"),
-                            }
-                            match *x.r#type {
-                                TypeSpecifier::PrimitiveType(ref t) => println!("ESPECIALLY if it's of type {}", t.src),
-                            }
-                            panic!("no chance main has any parameters");
-                        });
-
-                        self.main(child)
-                    } else {
-                        unimplemented!()
                     }
+                    Declarator::Identifier(_) => unimplemented!(),
+                    Declarator::InitDeclarator(_) => unimplemented!(),
+                },
+                TUChildren::TypeDefinition(ref typedef) => {
+                    top_level_env.add_type_from_node(typedef)
                 }
-                Declarator::Identifier(_) => unimplemented!(),
-                Declarator::InitDeclarator(_) => unimplemented!(),
             }
         }
     }
 
     /// Generate code for the `main` function, which is
     /// where program execution begins.
-    fn main(&mut self, function: &FunctionDefinition) {
-        self.compound_statement(function.body.as_ref(), None);
+    fn main(&mut self, function: &FunctionDefinition, env: &Environment) {
+        self.compound_statement(function.body.as_ref(), env);
     }
 
     /// This generates code for a scoping block (known internally
     /// as a compound statement). Creates a new environment for
-    /// the local variables declared here.
-    fn compound_statement(&mut self, node: &CompoundStatement, parent: Option<&Environment<'_>>) {
-        let mut env = Environment {
-            parent,
-            variables: HashMap::new(),
-            stack_base: self.stack_pointer,
-        };
-
-        for declaration in node.children.iter().filter_map(|x| match x {
-            BlockChildren::Declaration(d) => Some(d),
-            _ => None,
-        }) {
-            // TODO: problematic add_variable call...
-            self.add_variable(&mut env, declaration);
-        }
+    /// the local variables and types declared here.
+    fn compound_statement(&mut self, node: &CompoundStatement, parent_env: &Environment) {
+        let mut env = Environment::new(Some(parent_env));
 
         for child in &node.children {
-            match child {
-                BlockChildren::Declaration(d) => self.declaration(d, &env),
-                BlockChildren::Statement(s) => self.statement(s, &env),
+            match *child {
+                BlockChild::Declaration(ref decl) => {
+                    // like why both...
+                    self.add_variable(&mut env, decl);
+                    self.declaration(decl, &env);
+                }
+                BlockChild::Statement(ref stmt) => self.statement(stmt, &env),
+                BlockChild::TypeDefinition(ref typedef) => env.add_type_from_node(typedef),
             }
         }
 
@@ -340,8 +401,8 @@ impl Codegen {
             self.stack_pointer,
             env.variables
                 .values()
-                .max_by(|(loc1, _), (loc2, _)| loc1.cmp(loc2))
-                .map(|&(loc, ref r#type)| loc + r#type.size())
+                .max_by(|(loc1, _type1), (loc2, _type2)| loc1.cmp(loc2))
+                .map(|(loc, r#type)| *loc + r#type.size())
                 .unwrap_or(env.stack_base),
             "Stack not empty on scope exit"
         );
@@ -387,9 +448,9 @@ impl Codegen {
     }
 
     /// Generates code for any statement.
-    fn statement(&mut self, node: &Statement, env: &Environment<'_>) {
-        match *node {
-            Statement::CompoundStatement(ref cs) => self.compound_statement(cs, Some(env)),
+    fn statement(&mut self, stmt: &Statement, env: &Environment<'_>) {
+        match *stmt {
+            Statement::CompoundStatement(ref cs) => self.compound_statement(cs, env),
             Statement::ExpressionStatement(ref es) => {
                 let child = &es.child;
 
@@ -412,11 +473,7 @@ impl Codegen {
     /// Generates code for a `for` statement.
     fn for_statement(&mut self, node: &ForStatement, env: &Environment<'_>) {
         // The environment wherein the for loop expressions/statements exist
-        let mut outer_env = Environment {
-            parent: Some(env),
-            variables: HashMap::new(),
-            stack_base: self.stack_pointer,
-        };
+        let mut outer_env = Environment::new(Some(env));
 
         if let Some(initializer) = &node.initializer {
             match **initializer {
@@ -556,8 +613,8 @@ impl Codegen {
     }
 
     /// Evaluates any expression and pushes its value onto stack.
-    fn expression(&mut self, node: &Expression, env: &Environment<'_>) {
-        match *node {
+    fn expression(&mut self, expr: &Expression, env: &Environment<'_>) {
+        match *expr {
             Expression::AssignmentExpression(ref ae) => self.assignment_expression(ae, env),
             Expression::BinaryExpression(ref be) => self.binary_expression(&be, env),
             Expression::CallExpression(ref ce) => {
@@ -584,59 +641,8 @@ impl Codegen {
                 self.move_head(1);
             }
             Expression::False => self.move_head(1),
-            Expression::UpdateExpression(ref ue) => {
-                // TODO: this thing just assumes the update was postfixed.
-                // there's no way to structurally check in the AST whether
-                // it was prefixed or postfixed, which SUCKS so i'd have
-                // to probably check sourcecode
-
-                let dist = match *ue.argument {
-                    Expression::Identifier(ref id) => {
-                        let (var_location, r#type) = env
-                            .lookup_variable(&id.src)
-                            .expect("Variable should have been defined");
-
-                        // this function is majorly uninvolved from the type system, sadly
-                        if r#type != ValueType::Char {
-                            unimplemented!(
-                                "Non-integer types not supported for update expressions"
-                            );
-                        }
-
-                        self.stack_pointer - var_location
-                    }
-                    _ => unimplemented!("Non-identifiers not implemented for update expressions"),
-                };
-
-                // make space for final stack value
-                self.move_head(1);
-
-                // move value from variable to temp and inspect
-                self.push_n(dist + 1, '<');
-                self.bf_loop(|cg| {
-                    cg.push('-');
-                    cg.push_n(dist + 1, '>');
-                    cg.push('+');
-                    cg.push_n(dist + 1, '<');
-                });
-                self.push_n(dist + 1, '>');
-
-                // update temp according to operator
-                self.push(match *ue.operator {
-                    UpdateOperator::PlusPlus => '+',
-                    UpdateOperator::MinusMinus => '-',
-                });
-
-                // copy into variable and to stack
-                self.bf_loop(|cg| {
-                    cg.push_str("-<+");
-                    cg.push_n(dist, '<');
-                    cg.push('+');
-                    cg.push_n(dist + 1, '>');
-                });
-
-                // we are now after the stack value, so we're done!
-            }
+            Expression::UpdateExpression(ref update_expr) => self.update_expression(update_expr, env),
+            Expression::ParenthesizedExpression(ref paren_expr) => self.parenthesized_expression(paren_expr, env),
         }
     }
 
@@ -899,6 +905,63 @@ impl Codegen {
         self.stack_pointer += var_size;
     }
 
+    /// Generates code for an update expression 
+    /// 
+    /// For technical reasons, this function cannot easily ascertain whether the update operator was prefixed or postfixed so it currently assumes it's postfixed.
+    fn update_expression(&mut self, update_expr: &UpdateExpression, env: &Environment) {
+        // TODO: this thing currently just assumes the update was postfixed.
+        // there's no way to structurally check in the AST whether
+        // it was prefixed or postfixed, which SUCKS so i'd have
+        // to probably check sourcecode
+
+        let dist = match *update_expr.argument {
+            Expression::Identifier(ref id) => {
+                let (var_location, r#type) = env
+                    .lookup_variable(&id.src)
+                    .expect("Variable should have been defined");
+
+                // this function is majorly uninvolved from the type system, sadly
+                if r#type != ValueType::Char {
+                    unimplemented!(
+                        "Non-integer types not supported for update expressions"
+                    );
+                }
+
+                self.stack_pointer - var_location
+            }
+            _ => unimplemented!("Non-identifiers not implemented for update expressions"),
+        };
+
+        // make space for final stack value
+        self.move_head(1);
+
+        // move value from variable to temp and inspect
+        self.push_n(dist + 1, '<');
+        self.bf_loop(|cg| {
+            cg.push('-');
+            cg.push_n(dist + 1, '>');
+            cg.push('+');
+            cg.push_n(dist + 1, '<');
+        });
+        self.push_n(dist + 1, '>');
+
+        // update temp according to operator
+        self.push(match *update_expr.operator {
+            UpdateOperator::PlusPlus => '+',
+            UpdateOperator::MinusMinus => '-',
+        });
+
+        // copy into variable and to stack
+        self.bf_loop(|cg| {
+            cg.push_str("-<+");
+            cg.push_n(dist, '<');
+            cg.push('+');
+            cg.push_n(dist + 1, '>');
+        });
+
+        // we are now after the stack value, so we're done!
+    }
+    
     /// Evaluates a parenthesized expression (most cases,
     /// this is just syntactically required or to indicate
     /// operation order in expressions) and pushes its

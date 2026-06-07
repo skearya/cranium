@@ -425,11 +425,13 @@ declare_node_groups! {
         Identifier,
         NumberLiteral,
         UpdateExpression,
+        ParenthesizedExpression,
         ~ False,
         ~ True,
     },
     TypeSpecifier {
         PrimitiveType,
+        TypeIdentifier,
     },
     Declarator {
         Identifier,
@@ -442,8 +444,9 @@ declare_node_groups! {
         ~ Plus,
         ~ Minus,
     },
-    BlockChildren {
+    BlockChild {
         Declaration,
+        TypeDefinition,
         * Statement,
     },
     ForLoopInitializer {
@@ -463,15 +466,22 @@ declare_node_groups! {
         ~ PlusPlus,
         ~ MinusMinus,
     },
+    TypeDeclarator {
+        TypeIdentifier,
+    },
+    TUChildren {
+        FunctionDefinition,
+        TypeDefinition,
+    },
 }
 
 declare_nodes! {
     Node :=
     TranslationUnit ("translation_unit") {
-        children: FunctionDefinition,
+        * children: TUChildren,
     },
     CompoundStatement ("compound_statement") {
-        * children: BlockChildren,
+        * children: BlockChild,
     },
     FunctionDefinition ("function_definition") {
         fields: {
@@ -583,6 +593,15 @@ declare_nodes! {
             * argument: Expression,
             * operator: UpdateOperator,
         },
+    },
+    TypeDefinition ("type_definition") {
+        fields: {
+            * declarator: TypeDeclarator,
+            * r#type: TypeSpecifier,
+        },
+    },
+    TypeIdentifier ("type_identifier") {
+        @src,
     },
     ~ True ("true"),
     ~ False ("false"),
